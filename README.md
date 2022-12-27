@@ -19,3 +19,6 @@
 - Timescale adjustment
 - Aim assist
 - Cursor navigation
+
+## Notes
+- Timeline and other cursor controlled menus will only show correctly on 16:9 resolutions
