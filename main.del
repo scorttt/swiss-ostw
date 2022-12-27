@@ -1,0 +1,11 @@
+import "../workshop-scripts/macros.del";
+import "../workshop-scripts/testsettings.json";
+
+import "camera.del";
+import "timeline.del";
+import "dbg.del";
+
+rule: "Initial Global"
+{
+    PauseMatchTime();
+}
