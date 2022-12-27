@@ -1,0 +1,8 @@
+import "main.del";
+globalvar Button[] BUTTONS;
+playervar Boolean recording;
+
+rule: "Bot Playback Init"
+{
+    BUTTONS = [Button.PrimaryFire, Button.SecondaryFire, Button.Ability1, Button.Ability2, Button.Ultimate, Button.Jump, Button.Crouch, Button.Melee, Button.Reload];
+}
