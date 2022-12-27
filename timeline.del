@@ -1,0 +1,447 @@
+import "main.del";
+playervar Vector facing; // cursor math facing vector to compare
+playervar Boolean tl; // if timeline is open
+playervar Number sel_ctrl; // selected control item
+playervar Number sel_bar; // selected progress bar item
+
+globalvar Number[] CTRL_X_POS;
+globalvar Number[] TL_Y_POS;
+playervar Number[] ctrl_x_pos;
+globalvar Number[] tl_y_pos;
+
+Color SelectedPulse(): 
+    CustomColor(Oscillate(500, 0, 116), Oscillate(500, 153, 199), 255, 255);
+
+// cursor math credit to josbird
+Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), HorizontalAngleFromDirection(p.facing));
+Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), VerticalAngleFromDirection(p.facing));
+
+Vector MenuYFromMenuZ(Vector z): DirectionFromAngles(HorizontalAngleFromDirection(z), VerticalAngleFromDirection(z) - 90);
+Any RenderPosOf(Number x = 0, Number y = 0): 
+    Update(EyePos(local) + 100 * (x * Cross(Facing(local), MenuYFromMenuZ(Facing(local))) + y * MenuYFromMenuZ(Facing(local)) + 3 * Facing(local)));
+
+enum Ctrl
+{
+    Invalid = -1,
+    Play = 0,
+    Pause = 1,
+    Stop = 2,
+    Rewind = 3,
+    Forward = 4,
+    Start = 5,
+    End = 6,
+    Checkpoint = 7,
+    PrevChk = 8,
+    NextChk = 9,
+    Options = 10
+}
+
+enum Bar
+{
+    Invalid = -1,
+    Seek = 0,
+    LHandle = 1,
+    RHandle = 2,
+    Track = 3
+}
+playervar Number normalized_seek_pos;
+playervar Number seek_pos;
+playervar Number lhandle_pos;
+playervar Number rhandle_pos;
+rule: "init player"
+Event.OnPlayerJoin
+{
+    seek_pos = -2.60;
+    lhandle_pos = -2.60;
+    rhandle_pos = 2.60;
+}
+
+rule: "create timeline text"
+{
+    Number tooltip_y : -1.25;
+    CTRL_X_POS = [];
+    TL_Y_POS = [];
+
+    // play
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "▶",
+        Position:       RenderPosOf(-2.50, -1.16), 
+        Scale:          2,
+        TextColor:      local.sel_ctrl == Ctrl.Play
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Play ? local : null, 
+        Header:         "Play",
+        Position:       RenderPosOf(-2.50, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // pause
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "┃",
+        Position:       RenderPosOf(-2.40, -1.15), 
+        Scale:          1.5,
+        TextColor:      local.sel_ctrl == Ctrl.Pause
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "┃",
+        Position:       RenderPosOf(-2.36, -1.15), 
+        Scale:          1.5,
+        TextColor:      local.sel_ctrl == Ctrl.Pause
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Pause ? local : null, 
+        Header:         "Pause",
+        Position:       RenderPosOf(-2.38, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // stop
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "■",
+        Position:       RenderPosOf(-2.25, -1.155), 
+        Scale:          1.75,
+        TextColor:      local.sel_ctrl == Ctrl.Stop
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Stop ? local : null, 
+        Header:         "Stop",
+        Position:       RenderPosOf(-2.25, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // rewind
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "‹‹",
+        Position:       RenderPosOf(-2.125, -1.15), 
+        Scale:          2,
+        TextColor:      local.sel_ctrl == Ctrl.Rewind
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Rewind ? local : null, 
+        Header:         "Rewind",
+        Position:       RenderPosOf(-2.125, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // forward
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "››",
+        Position:       RenderPosOf(-2, -1.15), 
+        Scale:          2,
+        TextColor:      local.sel_ctrl == Ctrl.Forward
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Forward ? local : null, 
+        Header:         "Fast Forward",
+        Position:       RenderPosOf(-2, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // jump to start
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "≤",
+        Position:       RenderPosOf(-1.9, -1.15), 
+        Scale:          2,
+        TextColor:      local.sel_ctrl == Ctrl.Start
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Start ? local : null, 
+        Header:         "To Start",
+        Position:       RenderPosOf(-1.9, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // jump to end
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "≥",
+        Position:       RenderPosOf(-1.8, -1.15), 
+        Scale:          2,
+        TextColor:      local.sel_ctrl == Ctrl.End
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.End ? local : null, 
+        Header:         "To End",
+        Position:       RenderPosOf(-1.8, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // add checkpoint
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "尸",
+        Position:       RenderPosOf(-1.7, -1.15), 
+        Scale:          1.8,
+        TextColor:      local.sel_ctrl == Ctrl.Checkpoint
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Checkpoint ? local : null, 
+        Header:         "Add Checkpoint",
+        Position:       RenderPosOf(-1.7, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // prev checkpoint
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "←",
+        Position:       RenderPosOf(-1.6, -1.15), 
+        Scale:          2,
+        TextColor:      local.sel_ctrl == Ctrl.PrevChk
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.PrevChk ? local : null, 
+        Header:         "Previous Checkpoint",
+        Position:       RenderPosOf(-1.6, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // next checkpoint
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "→",
+        Position:       RenderPosOf(-1.5, -1.15), 
+        Scale:          2,
+        TextColor:      local.sel_ctrl == Ctrl.NextChk
+                            ? SelectedPulse() 
+                            : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.NextChk ? local : null, 
+        Header:         "Next Checkpoint",
+        Position:       RenderPosOf(-1.5, tooltip_y), 
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+
+
+
+    // progress bar
+    CreateProgressBarInWorldText(
+        VisibleTo:        local.tl ? local : null, 
+        Text:             null,
+        Value:            local.normalized_seek_pos * 100,
+        Position:         RenderPosOf(0, -1.35), 
+        Scale:            3.2,
+        ProgressBarColor: Color.White,
+        Reevaluation:     ProgressBarWorldEvaluation.VisibleToPositionAndValues,
+        Clipping:         Clipping.DoNotClip);
+    // seeker
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "┃",
+        Position:       RenderPosOf(local.seek_pos, -0.955), 
+        Scale:          2.75,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    // left handle
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "┗",
+        Position:       RenderPosOf(local.lhandle_pos, -1), 
+        Scale:          2.25,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    // right handle
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "┓",
+        Position:       RenderPosOf(local.rhandle_pos, -0.9), 
+        Scale:          2.25,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    // cursor
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null,
+        Header:         "↖",
+        Position:       RenderPosOf(CursorX() + 0.05, CursorY() - 0.105),
+        TextColor:      Color.White,
+        Scale:          3,
+        Clipping:       Clipping.DoNotClip,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor
+    );
+}
+
+Number X: CursorX(player);
+Number Y: CursorY(player);
+rule: "get tl control item"
+Event.OngoingPlayer
+if (tl)
+{
+    if (IsInRange(Y, -1.15, -1.05))
+    {
+             if (IsInRange(X, -2.575, -2.450))
+            sel_ctrl = Ctrl.Play;
+        else if (IsInRange(X, -2.450, -2.325))
+            sel_ctrl = Ctrl.Pause;
+        else if (IsInRange(X, -2.325, -2.200))
+            sel_ctrl = Ctrl.Stop;
+        else if (IsInRange(X, -2.200, -2.075))
+            sel_ctrl = Ctrl.Rewind;
+        else if (IsInRange(X, -2.075, -1.950))
+            sel_ctrl = Ctrl.Forward;
+        else if (IsInRange(X, -1.950, -1.850))
+            sel_ctrl = Ctrl.Start;
+        else if (IsInRange(X, -1.850, -1.765))
+            sel_ctrl = Ctrl.End;
+        else if (IsInRange(X, -1.765, -1.650))
+            sel_ctrl = Ctrl.Checkpoint;
+        else if (IsInRange(X, -1.650, -1.565))
+            sel_ctrl = Ctrl.PrevChk;
+        else if (IsInRange(X, -1.565, -1.475))
+            sel_ctrl = Ctrl.NextChk;
+        else
+            sel_ctrl = Ctrl.Invalid;
+    }
+    else
+    {
+        sel_ctrl = Ctrl.Invalid;
+    }
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+rule: "open menu toggle"
+Event.OngoingPlayer
+if (IsInteractHeld())
+{
+    WaitIfTrue(0.2);
+    sel_ctrl = Ctrl.Invalid;
+    sel_bar = Bar.Invalid;
+
+    tl = !tl;
+    if (tl)
+    {
+        facing = Facing();
+        SetAimSpeed(player, 10);
+        DisallowButton(player, Button.PrimaryFire);
+        DisallowButton(player, Button.SecondaryFire);
+    }
+    else
+    {
+        SetAimSpeed(player, 100);
+        AllowButton(player, Button.PrimaryFire);
+        AllowButton(player, Button.SecondaryFire);
+    }
+}
+
+rule: "drag bar controls"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+{
+
+    // switch (sel_bar)
+    {
+        // case Bar.Seek:
+            seek_pos = Clamp(CursorX(player), -2.60, 2.60);
+            normalized_seek_pos = (seek_pos - -2.60) / (2.60 - -2.60);
+        //     break;
+        // case Bar.LHandle:
+        //     break;
+        // case Bar.RHandle:
+        //     break;
+    }
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+Number SCREEN_WIDTH:   3.65;
+Number SCREEN_HEIGHT:  2.125;
+rule: "Menu Cursor : Reset Cursor if outside of screen bounds"
+Event.OngoingPlayer
+if (tl)
+if (Abs(CursorX(player)) > SCREEN_WIDTH || Abs(CursorY(player)) > SCREEN_HEIGHT)
+{
+    SetFacing(Direction: facing);
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
