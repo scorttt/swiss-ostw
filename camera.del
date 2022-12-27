@@ -1,0 +1,52 @@
+import "main.del";
+playervar Vector[] controlPoints;
+playervar Number degree;
+playervar Number[] knots;
+
+// useful: http://nurbscalculator.in/
+
+// THIS
+// SHIT
+// DONT
+// WORK
+// Vector EvaluateCurve(Number t) playervar "Evaluate Curve Sub"
+// {
+//     Vector result = Vector();
+//     Number sum = 0;
+//     for (Number i = 0; i < controlPoints.Length; i++)
+//     {
+//         Number weight = Basis(i, degree, t, knots);
+
+//         result += weight * controlPoints[i];
+
+//         sum += weight;
+//         MinWait();
+//     }
+
+//     result /= sum;
+
+//     return result;
+// }
+
+// recursive Number Basis(Number i, Number p, Number t, Number[] knots) playervar "Basis Sub"
+// {
+//     if (p == 0)
+//     {
+//         if (t >= knots[i] && t < knots[i + 1])
+//             return 1;
+//         else
+//             return 0;
+//     }
+//     else
+//     {
+//         Number weight1 = 0;
+//         if (knots[i + p] != knots[i])
+//             weight1 = (t - knots[i]) / (knots[i + p] - knots[i]) * Basis(i, p - 1, t, knots);
+
+//         Number weight2 = 0;
+//         if (knots[i + p + 1] != knots[i + 1])
+//             weight2 = (knots[i + p + 1] - t) / (knots[i + p + 1] - knots[i + 1]) * Basis(i + 1, p - 1, t, knots);
+
+//         return weight1 + weight2;
+//     }
+// }
