@@ -9,8 +9,7 @@
         - Stop
         - Fast Forward/Rewind
         - Jump to Start/End
-        - Add checkpoint at current time
-        - Jump to next/previous checkpoint
+        - Scrub "frame by frame" 
     - Trimming
     - Seeking
 - Player recording with dummy bot playback
