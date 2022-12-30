@@ -11,8 +11,6 @@ globalvar Number[] tl_y_pos;
 
 Color SelectedPulse(): 
     CustomColor(Oscillate(500, 0, 116), Oscillate(500, 153, 199), 255, 255);
-
-// cursor math credit to josbird
 Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), HorizontalAngleFromDirection(p.facing));
 Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), VerticalAngleFromDirection(p.facing));
 
@@ -30,10 +28,9 @@ enum Ctrl
     Forward = 4,
     Start = 5,
     End = 6,
-    Checkpoint = 7,
-    PrevChk = 8,
-    NextChk = 9,
-    Options = 10
+    PrevFrame = 7,
+    NextFrame = 8,
+    Options = 9
 }
 
 enum Bar
@@ -44,14 +41,9 @@ enum Bar
     RHandle = 2,
     Track = 3
 }
-playervar Number normalized_seek_pos;
-playervar Number seek_pos;
-playervar Number lhandle_pos;
-playervar Number rhandle_pos;
 rule: "init player"
 Event.OnPlayerJoin
 {
-    seek_pos = -2.60;
     lhandle_pos = -2.60;
     rhandle_pos = 2.60;
 }
@@ -142,7 +134,7 @@ rule: "create timeline text"
     // rewind
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
-        Header:         "‹‹",
+        Header:         "«",
         Position:       RenderPosOf(-2.125, -1.15), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.Rewind
@@ -164,7 +156,7 @@ rule: "create timeline text"
     // forward
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
-        Header:         "››",
+        Header:         "»",
         Position:       RenderPosOf(-2, -1.15), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.Forward
@@ -227,21 +219,21 @@ rule: "create timeline text"
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
-    // add checkpoint
+    // prev frame
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
-        Header:         "尸",
+        Header:         "←",
         Position:       RenderPosOf(-1.7, -1.15), 
-        Scale:          1.8,
-        TextColor:      local.sel_ctrl == Ctrl.Checkpoint
+        Scale:          2,
+        TextColor:      local.sel_ctrl == Ctrl.PrevFrame
                             ? SelectedPulse() 
                             : Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Checkpoint ? local : null, 
-        Header:         "Add Checkpoint",
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.PrevFrame ? local : null, 
+        Header:         "Previous Frame",
         Position:       RenderPosOf(-1.7, tooltip_y), 
         Scale:          1,
         TextColor:      Color.White,
@@ -249,21 +241,21 @@ rule: "create timeline text"
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
-    // prev checkpoint
+    // next frame
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
-        Header:         "←",
+        Header:         "→",
         Position:       RenderPosOf(-1.6, -1.15), 
         Scale:          2,
-        TextColor:      local.sel_ctrl == Ctrl.PrevChk
+        TextColor:      local.sel_ctrl == Ctrl.NextFrame
                             ? SelectedPulse() 
                             : Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.PrevChk ? local : null, 
-        Header:         "Previous Checkpoint",
+        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.NextFrame ? local : null, 
+        Header:         "Next Frame",
         Position:       RenderPosOf(-1.6, tooltip_y), 
         Scale:          1,
         TextColor:      Color.White,
@@ -271,24 +263,26 @@ rule: "create timeline text"
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
-    // next checkpoint
+    // current frame
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
-        Header:         "→",
-        Position:       RenderPosOf(-1.5, -1.15), 
-        Scale:          2,
-        TextColor:      local.sel_ctrl == Ctrl.NextChk
-                            ? SelectedPulse() 
-                            : Color.White,
+        Header:         <"<0>", local.curr_frame>,
+        Position:       RenderPosOf(-1.6515, -1.075), 
+        Scale:          1,
+        TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
+
+    // options
     CreateInWorldText(
-        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.NextChk ? local : null, 
-        Header:         "Next Checkpoint",
-        Position:       RenderPosOf(-1.5, tooltip_y), 
-        Scale:          1,
-        TextColor:      Color.White,
+        VisibleTo:      local.tl ? local : null, 
+        Header:         "Options",
+        Position:       RenderPosOf(2.35, -1.15), 
+        Scale:          1.5,
+        TextColor:      local.sel_ctrl == Ctrl.Options
+                            ? SelectedPulse() 
+                            : Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -299,8 +293,9 @@ rule: "create timeline text"
     // progress bar
     CreateProgressBarInWorldText(
         VisibleTo:        local.tl ? local : null, 
-        Text:             null,
-        Value:            local.normalized_seek_pos * 100,
+        Text:             <"<0>", 
+                              local.curr_frame / max_frames * (max_frames * 0.016) / 1>,
+        Value:            (local.curr_frame / max_frames) * 100,
         Position:         RenderPosOf(0, -1.35), 
         Scale:            3.2,
         ProgressBarColor: Color.White,
@@ -310,7 +305,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
         Header:         "┃",
-        Position:       RenderPosOf(local.seek_pos, -0.955), 
+        Position:       RenderPosOf(((local.curr_frame / max_frames) * 5.2) - 2.6, -0.955), 
         Scale:          2.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -319,9 +314,9 @@ rule: "create timeline text"
     // left handle
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
-        Header:         "┗",
-        Position:       RenderPosOf(local.lhandle_pos, -1), 
-        Scale:          2.25,
+        Header:         "▼",
+        Position:       RenderPosOf(local.lhandle_pos, -0.80), 
+        Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
@@ -329,9 +324,9 @@ rule: "create timeline text"
     // right handle
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
-        Header:         "┓",
-        Position:       RenderPosOf(local.rhandle_pos, -0.9), 
-        Scale:          2.25,
+        Header:         "▼",
+        Position:       RenderPosOf(local.rhandle_pos, -0.80), 
+        Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
@@ -356,7 +351,7 @@ if (tl)
 {
     if (IsInRange(Y, -1.15, -1.05))
     {
-             if (IsInRange(X, -2.575, -2.450))
+        if      (IsInRange(X, -2.575, -2.450))
             sel_ctrl = Ctrl.Play;
         else if (IsInRange(X, -2.450, -2.325))
             sel_ctrl = Ctrl.Pause;
@@ -371,12 +366,12 @@ if (tl)
         else if (IsInRange(X, -1.850, -1.765))
             sel_ctrl = Ctrl.End;
         else if (IsInRange(X, -1.765, -1.650))
-            sel_ctrl = Ctrl.Checkpoint;
+            sel_ctrl = Ctrl.PrevFrame;
         else if (IsInRange(X, -1.650, -1.565))
-            sel_ctrl = Ctrl.PrevChk;
-        else if (IsInRange(X, -1.565, -1.475))
-            sel_ctrl = Ctrl.NextChk;
-        else
+            sel_ctrl = Ctrl.NextFrame;
+        else if (IsInRange(X, 2.10, 2.60))
+            sel_ctrl = Ctrl.Options;
+        else 
             sel_ctrl = Ctrl.Invalid;
     }
     else
@@ -386,6 +381,74 @@ if (tl)
 
     MinWait();
     LoopIfConditionIsTrue();
+}
+
+playervar Boolean playing = true;
+void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
+{
+    switch (ctrl)
+    {
+        // todo: move these into subs, not sure why its weird with rewind/ff when a sub is called but this is fine for now
+        case Ctrl.Play:
+            playing = true;
+            curr_frame++;
+            MinWait();
+            LoopIf(playing && curr_frame < max_frames);
+            break;
+        case Ctrl.Pause:
+            playing = false;
+            break;
+        case Ctrl.Stop:
+            playing = false;
+            curr_frame = 0;
+            break;
+        case Ctrl.Rewind:
+            playing = true;
+
+            if (curr_frame >= 3)
+            {
+                curr_frame -= 3;
+                MinWait();
+                LoopIf(playing && curr_frame > 0);
+
+                if (curr_frame < 0)
+                {
+                    curr_frame = 0;
+                    playing = false;
+                }
+            }
+
+            break;
+        case Ctrl.Forward:
+            playing = true;
+            if (curr_frame <= max_frames - 2)
+            {
+                curr_frame += 3;
+                MinWait();
+                LoopIf(playing && curr_frame <= max_frames - 2);
+
+                if (curr_frame > max_frames)
+                {
+                    curr_frame = max_frames;
+                    playing = false;
+                }
+            }
+            break;
+        case Ctrl.Start:
+            curr_frame = 0;
+            break;
+        case Ctrl.End:
+            curr_frame = max_frames;
+            break;
+        case Ctrl.PrevFrame:
+            if (curr_frame > 0)
+                curr_frame--;
+            break;
+        case Ctrl.NextFrame:
+            if (curr_frame < max_frames)
+                curr_frame++;
+            break;
+    }
 }
 
 rule: "open menu toggle"
@@ -412,35 +475,80 @@ if (IsInteractHeld())
     }
 }
 
+
+playervar Number normalized_seek_pos;
+playervar Number curr_frame;
+playervar Number lhandle_pos;
+playervar Number rhandle_pos;
+Number max_frames: 5625;
+Number delta: 0.016;
 rule: "drag bar controls"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
+if (can_drag)
 {
-
-    // switch (sel_bar)
-    {
-        // case Bar.Seek:
-            seek_pos = Clamp(CursorX(player), -2.60, 2.60);
-            normalized_seek_pos = (seek_pos - -2.60) / (2.60 - -2.60);
-        //     break;
-        // case Bar.LHandle:
-        //     break;
-        // case Bar.RHandle:
-        //     break;
-    }
+    // can probably do this better
+    normalized_seek_pos = (Clamp(CursorX(player), -2.60, 2.60) - -2.60) / (2.60 - -2.60); // normalized position of the in world position of the seeker
+    curr_frame = Floor(max_frames * normalized_seek_pos);
 
     MinWait();
     LoopIfConditionIsTrue();
 }
 
+playervar Boolean can_drag;
+playervar Boolean was_playing;
+rule: "in bar bounds"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+if (Abs(X) < 2.60)
+if (IsInRange(Y, -0.975, -0.825))
+{
+    can_drag = true;
+
+    if (playing)
+    {
+        was_playing = true;
+        playing = false;
+    }
+
+    WaitUntil(!IsPrimaryHeld() || !tl, 99999);
+
+    if (was_playing)
+    {
+        playing = true;
+    }
+
+    can_drag = false;
+}
+
+rule: "TL : Select Hovered Control Item"
+Event.OngoingPlayer
+if (tl)
+if (sel_ctrl != Ctrl.Invalid)
+if (IsPrimaryHeld())
+{
+    WaitUntil(!IsPrimaryHeld(), 99999);
+
+    async! ControlSelectionHandler(sel_ctrl);
+    // Wait(0.5);
+    // LoopIfConditionIsTrue(); // loop to prevent players inputs from being eaten cuz otherwise it feels like shit
+}
+
 Number SCREEN_WIDTH:   3.65;
 Number SCREEN_HEIGHT:  2.125;
-rule: "Menu Cursor : Reset Cursor if outside of screen bounds"
+rule: "Cursor : Reset Cursor if outside of screen bounds"
 Event.OngoingPlayer
 if (tl)
 if (Abs(CursorX(player)) > SCREEN_WIDTH || Abs(CursorY(player)) > SCREEN_HEIGHT)
 {
-    SetFacing(Direction: facing);
+    SetFacing(Direction: DirectionFromAngles(
+        Min(Max(HorizontalAngleFromDirection(facing) - CursorX(player), 
+                HorizontalAngleFromDirection(facing) - SCREEN_WIDTH / 1.01), 
+                HorizontalAngleFromDirection(facing) + SCREEN_WIDTH / 1.01),
+        Min(Max(VerticalAngleFromDirection(facing) - CursorY(player), 
+                VerticalAngleFromDirection(facing) - SCREEN_HEIGHT / 1.01), 
+                VerticalAngleFromDirection(facing) + SCREEN_HEIGHT / 1.01)
+    ));
 
     MinWait();
     LoopIfConditionIsTrue();
