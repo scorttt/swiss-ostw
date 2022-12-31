@@ -5,6 +5,6 @@ Event.OngoingPlayer
 if (player == host)
 {
     ServerStats(player, 2);
-    CreateHudText(host, null, <" \nPos: <0>\nFacing: <1>\nRC: <2>", PositionOf(), Facing(), RayCastHitPosition(EyePos(), EyePos() + Facing() * 100, null, all, false)>, null, Location.Right, 0.5);
-    CreateHudText(host, null, <"(<0>, <1>)\nsel_ctrl: <2>\nsel_bar: <3>", CursorX(), CursorY(), sel_ctrl, sel_bar>, null, Location.Right, 0.6);
+    CreateHudText(host, null, <"Pos: <0>\nFacing: <1>\nRC: <2>", PositionOf(), Facing(), RayCastHitPosition(EyePos(), EyePos() + Facing() * 100, null, all, false)>, null, Location.Right, 0.5);
+    CreateHudText(host, null, <"(<0>, <1>)\nsel_ctrl: <2>\nframe: <3>", CursorX(), CursorY(), sel_ctrl, frame>, null, Location.Right, 0.6);
 }

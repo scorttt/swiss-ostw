@@ -2,7 +2,6 @@ import "main.del";
 playervar Vector facing; // cursor math facing vector to compare
 playervar Boolean tl; // if timeline is open
 playervar Number sel_ctrl; // selected control item
-playervar Number sel_bar; // selected progress bar item
 
 globalvar Number[] CTRL_X_POS;
 globalvar Number[] TL_Y_POS;
@@ -33,14 +32,6 @@ enum Ctrl
     Options = 9
 }
 
-enum Bar
-{
-    Invalid = -1,
-    Seek = 0,
-    LHandle = 1,
-    RHandle = 2,
-    Track = 3
-}
 rule: "init player"
 Event.OnPlayerJoin
 {
@@ -266,7 +257,7 @@ rule: "create timeline text"
     // current frame
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
-        Header:         <"<0>", local.curr_frame>,
+        Header:         <"<0>", local.frame>,
         Position:       RenderPosOf(-1.6515, -1.075), 
         Scale:          1,
         TextColor:      Color.White,
@@ -294,8 +285,8 @@ rule: "create timeline text"
     CreateProgressBarInWorldText(
         VisibleTo:        local.tl ? local : null, 
         Text:             <"<0>", 
-                              local.curr_frame / max_frames * (max_frames * 0.016) / 1>,
-        Value:            (local.curr_frame / max_frames) * 100,
+                              local.frame / max_frames * (max_frames * 0.016) / 1>,
+        Value:            (local.frame / max_frames) * 100,
         Position:         RenderPosOf(0, -1.35), 
         Scale:            3.2,
         ProgressBarColor: Color.White,
@@ -305,7 +296,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
         Header:         "┃",
-        Position:       RenderPosOf(((local.curr_frame / max_frames) * 5.2) - 2.6, -0.955), 
+        Position:       RenderPosOf(((local.frame / max_frames) * 5.2) - 2.6, -0.955), 
         Scale:          2.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -334,8 +325,8 @@ rule: "create timeline text"
     // cursor
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null,
-        Header:         "↖",
-        Position:       RenderPosOf(CursorX() + 0.05, CursorY() - 0.105),
+        Header:         !local.can_drag ? "↖" : "↔",
+        Position:       !local.can_drag ? RenderPosOf(CursorX() + 0.05, CursorY() - 0.105) : RenderPosOf(CursorX(), CursorY() - 0.07),
         TextColor:      Color.White,
         Scale:          3,
         Clipping:       Clipping.DoNotClip,
@@ -383,72 +374,109 @@ if (tl)
     LoopIfConditionIsTrue();
 }
 
-playervar Boolean playing = true;
+playervar Boolean playing; // normal playback bool
+playervar Boolean rewind; // rewind bool
+playervar Boolean forward; // fast forward bool
+void StopAll() playervar "stop all playback"
+{
+    playing = false;
+    forward = false;
+    rewind = false;
+}
+
 void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
 {
     switch (ctrl)
     {
-        // todo: move these into subs, not sure why its weird with rewind/ff when a sub is called but this is fine for now
         case Ctrl.Play:
             playing = true;
-            curr_frame++;
-            MinWait();
-            LoopIf(playing && curr_frame < max_frames);
+            forward = false;
+            rewind = false;
             break;
         case Ctrl.Pause:
-            playing = false;
+            StopAll();
             break;
         case Ctrl.Stop:
-            playing = false;
-            curr_frame = 0;
+            StopAll();
+            frame = 0;
             break;
         case Ctrl.Rewind:
-            playing = true;
-
-            if (curr_frame >= 3)
-            {
-                curr_frame -= 3;
-                MinWait();
-                LoopIf(playing && curr_frame > 0);
-
-                if (curr_frame < 0)
-                {
-                    curr_frame = 0;
-                    playing = false;
-                }
-            }
-
+            rewind = true;
+            forward = false;
+            playing = false;
             break;
         case Ctrl.Forward:
-            playing = true;
-            if (curr_frame <= max_frames - 2)
-            {
-                curr_frame += 3;
-                MinWait();
-                LoopIf(playing && curr_frame <= max_frames - 2);
-
-                if (curr_frame > max_frames)
-                {
-                    curr_frame = max_frames;
-                    playing = false;
-                }
-            }
+            forward = true;
+            rewind = false;
+            playing = false;
             break;
         case Ctrl.Start:
-            curr_frame = 0;
+            frame = 0;
             break;
         case Ctrl.End:
-            curr_frame = max_frames;
+            StopAll();
+            frame = max_frames;
             break;
         case Ctrl.PrevFrame:
-            if (curr_frame > 0)
-                curr_frame--;
+            if (playing)
+                StopAll();
+
+            if (frame > 0)
+                frame--;
             break;
         case Ctrl.NextFrame:
-            if (curr_frame < max_frames)
-                curr_frame++;
+            if (playing)
+                StopAll();
+
+            if (frame < max_frames)
+                frame++;
             break;
     }
+}
+
+rule: "play"
+Event.OngoingPlayer
+if (playing)
+if (frame < max_frames)
+{
+    frame++;
+    MinWait(); // each frame lasts for 0.016s, so increment by 1 every 0.016s
+    LoopIfConditionIsTrue();
+}
+
+Number ffr_speed: 3; // how many frames to jump per tick during rewind/fast forward TODO: make this player adjustable
+rule: "rewind"
+Event.OngoingPlayer
+if (rewind)
+if (frame > 0)
+{
+    frame -= ffr_speed;
+
+    if (frame < 0)
+    {
+        StopAll();
+        frame = 0;
+    }
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+rule: "forward"
+Event.OngoingPlayer
+if (forward)
+if (max_frames > frame)
+{
+    frame += ffr_speed;
+
+    if (frame > max_frames)
+    {
+        StopAll();
+        frame = max_frames;
+    }
+
+    MinWait();
+    LoopIfConditionIsTrue();
 }
 
 rule: "open menu toggle"
@@ -457,7 +485,6 @@ if (IsInteractHeld())
 {
     WaitIfTrue(0.2);
     sel_ctrl = Ctrl.Invalid;
-    sel_bar = Bar.Invalid;
 
     tl = !tl;
     if (tl)
@@ -476,8 +503,8 @@ if (IsInteractHeld())
 }
 
 
-playervar Number normalized_seek_pos;
-playervar Number curr_frame;
+playervar Number seek_pos;
+playervar Number frame;
 playervar Number lhandle_pos;
 playervar Number rhandle_pos;
 Number max_frames: 5625;
@@ -488,15 +515,14 @@ if (IsPrimaryHeld())
 if (can_drag)
 {
     // can probably do this better
-    normalized_seek_pos = (Clamp(CursorX(player), -2.60, 2.60) - -2.60) / (2.60 - -2.60); // normalized position of the in world position of the seeker
-    curr_frame = Floor(max_frames * normalized_seek_pos);
+    seek_pos = NormalizedNumber(Clamp(CursorX(player), -2.60, 2.60), -2.60, 2.60); // normalize the position of the seeker from 0-1
+    frame = Floor(max_frames * seek_pos);
 
     MinWait();
     LoopIfConditionIsTrue();
 }
 
 playervar Boolean can_drag;
-playervar Boolean was_playing;
 rule: "in bar bounds"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
@@ -505,18 +531,10 @@ if (IsInRange(Y, -0.975, -0.825))
 {
     can_drag = true;
 
-    if (playing)
-    {
-        was_playing = true;
-        playing = false;
-    }
+    if (playing || rewind || forward)
+        StopAll();
 
     WaitUntil(!IsPrimaryHeld() || !tl, 99999);
-
-    if (was_playing)
-    {
-        playing = true;
-    }
 
     can_drag = false;
 }

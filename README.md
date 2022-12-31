@@ -2,22 +2,24 @@
  An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop) to provide a slew of movie making features for Overwatch content creators
 
 ## Features
-- Timeline
+- Timeline for easy visualizations of dummy bot playback and camera pathing
+    - Cursor navigation
     - Controls
         - Play
         - Pause
         - Stop
         - Fast Forward/Rewind
         - Jump to Start/End
-        - Scrub "frame by frame" 
+        - Scrub frame by frame
     - Trimming
-    - Seeking
+    - Scrubbing
 - Player recording with dummy bot playback
 - Camera pathing
 - Noclip
 - Timescale adjustment
 - Aim assist
-- Cursor navigation
 
-## Notes
-- Timeline and other cursor controlled menus will only show correctly on 16:9 resolutions
+## Notes and Limitations
+- Cursor controlled menus will only show correctly on 16:9 resolutions and non-CJK languages
+- Each frame is 0.016s (about 62.5 fps), 60s recording = 3,750 frames, 30s recording = 1,875 frames, etc. Because of this, it is not possible to have a recording in seconds end as a whole odd number
+- Server load is high while playback and recording is active, because of this it is recommended to only be used by one player. It will work with multiple players; however server crashes are likely
