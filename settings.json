@@ -13,7 +13,7 @@
       "Hero Limit": "Off",
       "Game Mode Start": "Immediately"
     },
-    "Skirmish": {}
+    "Skirmish": {"Enabled Maps": ["Workshop Chamber"]}
   },
   "Extensions": { 
     "Beam Effects": true,
