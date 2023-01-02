@@ -49,9 +49,9 @@ rule: "create timeline text"
 
     // play
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      local.tl && !local.playback ? local : null, 
         Header:         "▶",
-        Position:       RenderPosOf(-2.50, -1.16), 
+        Position:       RenderPosOf(-2.38, -1.16), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.Play
                             ? SelectedPulse() 
@@ -62,7 +62,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Play ? local : null, 
         Header:         "Play",
-        Position:       RenderPosOf(-2.50, tooltip_y), 
+        Position:       RenderPosOf(-2.38, tooltip_y), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -71,7 +71,7 @@ rule: "create timeline text"
 
     // pause
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      local.tl && local.playback ? local : null, 
         Header:         "┃",
         Position:       RenderPosOf(-2.40, -1.15), 
         Scale:          1.5,
@@ -82,7 +82,7 @@ rule: "create timeline text"
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      local.tl && local.playback ? local : null, 
         Header:         "┃",
         Position:       RenderPosOf(-2.36, -1.15), 
         Scale:          1.5,
@@ -110,7 +110,9 @@ rule: "create timeline text"
         Scale:          1.75,
         TextColor:      local.sel_ctrl == Ctrl.Stop
                             ? SelectedPulse() 
-                            : Color.White,
+                            : local.playback
+                                ? Color.White
+                                : Color.Gray,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -373,11 +375,11 @@ if (tl)
 {
     if (IsInRange(Y, -1.15, -1.05))
     {
-        if      (IsInRange(X, -2.575, -2.450))
+        if      (!playback && IsInRange(X, -2.450, -2.325))
             sel_ctrl = Ctrl.Play;
-        else if (IsInRange(X, -2.450, -2.325))
+        else if (playback && IsInRange(X, -2.450, -2.325))
             sel_ctrl = Ctrl.Pause;
-        else if (IsInRange(X, -2.325, -2.200))
+        else if (playback && IsInRange(X, -2.325, -2.200))
             sel_ctrl = Ctrl.Stop;
         else if (IsInRange(X, -2.200, -2.075))
             sel_ctrl = Ctrl.Rewind;
@@ -408,8 +410,10 @@ if (tl)
 playervar Boolean playing; // normal playback bool
 playervar Boolean rewind; // rewind bool
 playervar Boolean forward; // fast forward bool
+playervar Boolean playback; // any form of playback bool
 void StopAll() playervar "stop all playback"
 {
+    playback = false;
     playing = false;
     forward = false;
     rewind = false;
@@ -420,6 +424,7 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
     switch (ctrl)
     {
         case Ctrl.Play:
+            playback = true;
             playing = true;
             forward = false;
             rewind = false;
@@ -432,11 +437,13 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
             frame = min_frame;
             break;
         case Ctrl.Rewind:
+            playback = true;
             rewind = true;
             forward = false;
             playing = false;
             break;
         case Ctrl.Forward:
+            playback = true;
             forward = true;
             rewind = false;
             playing = false;
@@ -449,14 +456,14 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
             frame = max_frames;
             break;
         case Ctrl.PrevFrame:
-            if (playing)
+            if (playback)
                 StopAll();
 
             if (frame > min_frame)
                 frame--;
             break;
         case Ctrl.NextFrame:
-            if (playing)
+            if (playback)
                 StopAll();
 
             if (frame < max_frames)
@@ -473,6 +480,7 @@ if (frame < max_frames)
     frame++;
     MinWait(); // each frame lasts for 0.016s, so increment by 1 every 0.016s
     LoopIfConditionIsTrue();
+    StopAll();
 }
 
 Number ffr_speed: 3; // how many frames to jump per tick during rewind/fast forward TODO: make this player adjustable
@@ -491,6 +499,7 @@ if (frame > min_frame)
 
     MinWait();
     LoopIfConditionIsTrue();
+    StopAll();
 }
 
 rule: "forward"
@@ -508,6 +517,7 @@ if (max_frames > frame)
 
     MinWait();
     LoopIfConditionIsTrue();
+    StopAll();
 }
 
 rule: "open menu toggle"
@@ -565,7 +575,7 @@ Event.OngoingPlayer
 if (IsPrimaryHeld())
 if (can_drag_lhand)
 {
-    lhandle_pos = Clamp(CursorX(player), -2.60, rhandle_pos - 0.05);
+    lhandle_pos = Clamp(CursorX(player), -2.60, rhandle_pos - 0.1);
     lhandle_normal = NormalizedNumber(lhandle_pos, -2.60, 2.60);
     min_frame = Floor(total_frames * lhandle_normal);
 
@@ -581,7 +591,7 @@ Event.OngoingPlayer
 if (IsPrimaryHeld())
 if (can_drag_rhand)
 {
-    rhandle_pos = Clamp(CursorX(player), lhandle_pos + 0.05, 2.60);
+    rhandle_pos = Clamp(CursorX(player), lhandle_pos + 0.1, 2.60);
     rhandle_normal = NormalizedNumber(rhandle_pos, -2.60, 2.60);
     max_frames = Floor(total_frames * rhandle_normal);
 
