@@ -1,5 +1,5 @@
 import "../workshop-scripts/macros.del";
-import "../workshop-scripts/testsettings.json";
+import "settings.json";
 
 import "camera.del";
 import "timeline.del";
