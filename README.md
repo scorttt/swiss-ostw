@@ -2,7 +2,7 @@
  An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop) to provide a slew of movie making features for Overwatch content creators
 
 ## Features
-- Timeline for easy visualizations of dummy bot playback and camera pathing
+- Timeline for easy visualizations of dummy bot playback and camera pathing (WIP)
     - Cursor navigation
     - Controls
         - Play
@@ -13,11 +13,11 @@
         - Scrub frame by frame
     - Trimming
     - Scrubbing
-- Player recording with dummy bot playback
-- Camera pathing
-- Noclip
-- Timescale adjustment
-- Aim assist
+- Player recording with dummy bot playback (NYI)
+- Camera pathing (NYI)
+- Noclip (NYI)
+- Timescale adjustment (NYI)
+- Aim assist (NYI)
 
 ## Notes and Limitations
 - Cursor controlled menus will only show correctly on 16:9 resolutions and non-CJK languages
