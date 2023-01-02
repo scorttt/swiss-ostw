@@ -5,20 +5,24 @@ A work in progress Overwatch workshop mode built on [OSTW](https://github.com/It
 - Timeline for easy visualizations of dummy bot playback and camera pathing **(WIP)**
     - Cursor navigation **(DONE)**
     - Controls **(DONE)**
-        - Play
-        - Pause
-        - Stop
-        - Fast Forward/Rewind
-        - Jump to Start/End
-        - Scrub frame by frame
+        - Play **(DONE)**
+        - Pause **(DONE)**
+        - Stop **(DONE)**
+        - Fast Forward/Rewind **(DONE)**
+        - Jump to Start/End **(DONE)**
+        - Scrub frame by frame **(DONE)**
     - Trimming **(DONE)**
     - Scrubbing **(DONE)**
-    - Options for recording and player **(Not Implemented)**
-- Player recording with dummy bot playback **(Not Implemented)**
-- Camera pathing **(Not Implemented)**
-- Noclip **(Not Implemented)**
-- Timescale adjustment **(Not Implemented)**
-- Aim assist **(Not Implemented)**
+- Recording **(Not Implemented)**
+    - Player recording with dummy bot playback **(Not Implemented)**
+    - Camera pathing **(Not Implemented)**
+- Recording Options
+    - Timescale adjustment **(Not Implemented)**
+    - Add/Remove Bot Track **(Not Implemented)**
+    - Add/Remove Camera Track **(Not Implemented)**
+- Player Options **(Not Implemented)**
+    - Noclip **(Not Implemented)**
+    - Aim assist **(Not Implemented)**
 
 ## Notes and Limitations
 - Cursor controlled menus will only show correctly on 16:9 resolutions and non-CJK languages
