@@ -1,23 +1,24 @@
 # Swiss MVM
- An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop) to provide a slew of movie making features for Overwatch content creators
+A work in progress Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop) to provide a slew of movie making features for Overwatch content creators
 
 ## Features
-- Timeline for easy visualizations of dummy bot playback and camera pathing (WIP)
-    - Cursor navigation
-    - Controls
+- Timeline for easy visualizations of dummy bot playback and camera pathing **(WIP)**
+    - Cursor navigation **(DONE)**
+    - Controls **(DONE)**
         - Play
         - Pause
         - Stop
         - Fast Forward/Rewind
         - Jump to Start/End
         - Scrub frame by frame
-    - Trimming
-    - Scrubbing
-- Player recording with dummy bot playback (NYI)
-- Camera pathing (NYI)
-- Noclip (NYI)
-- Timescale adjustment (NYI)
-- Aim assist (NYI)
+    - Trimming **(DONE)**
+    - Scrubbing **(DONE)**
+    - Options for recording and player **(Not Implemented)**
+- Player recording with dummy bot playback **(Not Implemented)**
+- Camera pathing **(Not Implemented)**
+- Noclip **(Not Implemented)**
+- Timescale adjustment **(Not Implemented)**
+- Aim assist **(Not Implemented)**
 
 ## Notes and Limitations
 - Cursor controlled menus will only show correctly on 16:9 resolutions and non-CJK languages
