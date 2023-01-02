@@ -605,7 +605,7 @@ if (can_drag_rhand)
 rule: "in lhandle bounds"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (IsInRange(X, lhandle_pos - 0.075, lhandle_pos + 0.075))
+if (IsInRange(X, lhandle_pos - 0.0375, lhandle_pos + 0.0375))
 if (IsInRange(Y, -0.80, -0.725))
 if (!dragging)
 {
@@ -624,7 +624,7 @@ if (!dragging)
 rule: "in rhandle bounds"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (IsInRange(X, rhandle_pos - 0.075, rhandle_pos + 0.075))
+if (IsInRange(X, rhandle_pos - 0.0375, rhandle_pos + 0.0375))
 if (IsInRange(Y, -0.80, -0.725))
 if (!dragging)
 {
@@ -664,6 +664,7 @@ rule: "TL : Select Hovered Control Item"
 Event.OngoingPlayer
 if (tl)
 if (sel_ctrl != Ctrl.Invalid)
+if (!dragging)
 if (IsPrimaryHeld())
 {
     WaitUntil(!IsPrimaryHeld(), 99999);
