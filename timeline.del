@@ -35,6 +35,8 @@ enum Ctrl
 rule: "init player"
 Event.OnPlayerJoin
 {
+    min_frame = 0;
+    max_frames = total_frames;
     lhandle_pos = -2.60;
     rhandle_pos = 2.60;
 }
@@ -279,14 +281,19 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
 
 
-
-
+Number FrameToSeconds: (local.frame / total_frames * (total_frames * 0.016) / 1);
     // progress bar
     CreateProgressBarInWorldText(
         VisibleTo:        local.tl ? local : null, 
-        Text:             <"<0>", 
-                              local.frame / max_frames * (max_frames * 0.016) / 1>,
-        Value:            (local.frame / max_frames) * 100,
+        Text:             <"<0>:<1><2>", 
+                                Floor(FrameToSeconds / 60) % 60, 
+                                Floor(FrameToSeconds % 60) < 10 
+                                    ? "0" 
+                                    : "", 
+                                local.frame % 62.5 != 0 
+                                    ? FrameToSeconds % 60
+                                    : <String>(FrameToSeconds % 60) + ".00">, // THIS IS SO DUMB
+        Value:            (local.frame / total_frames) * 100,
         Position:         RenderPosOf(0, -1.35), 
         Scale:            3.2,
         ProgressBarColor: Color.White,
@@ -294,9 +301,9 @@ rule: "create timeline text"
         Clipping:         Clipping.DoNotClip);
     // seeker
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      local.tl ? local : null,
         Header:         "┃",
-        Position:       RenderPosOf(((local.frame / max_frames) * 5.2) - 2.6, -0.955), 
+        Position:       RenderPosOf(((local.frame / total_frames) * 5.2) - 2.6, -0.955), 
         Scale:          2.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -306,8 +313,18 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
         Header:         "▼",
-        Position:       RenderPosOf(local.lhandle_pos, -0.80), 
+        Position:       RenderPosOf(local.lhandle_pos + 0.0002, -0.80), 
         Scale:          2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    // left handle min frame
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         <"<0>", local.min_frame>,
+        Position:       RenderPosOf(local.lhandle_pos + 0.0002, -0.725), 
+        Scale:          0.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
@@ -316,8 +333,18 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null, 
         Header:         "▼",
-        Position:       RenderPosOf(local.rhandle_pos, -0.80), 
+        Position:       RenderPosOf(local.rhandle_pos + 0.0002, -0.80), 
         Scale:          2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    // right handle max frame
+    CreateInWorldText(
+        VisibleTo:      local.tl ? local : null, 
+        Header:         <"<0>", local.max_frames>,
+        Position:       RenderPosOf(local.rhandle_pos + 0.0002, -0.725), 
+        Scale:          0.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
@@ -325,8 +352,12 @@ rule: "create timeline text"
     // cursor
     CreateInWorldText(
         VisibleTo:      local.tl ? local : null,
-        Header:         !local.can_drag ? "↖" : "↔",
-        Position:       !local.can_drag ? RenderPosOf(CursorX() + 0.05, CursorY() - 0.105) : RenderPosOf(CursorX(), CursorY() - 0.07),
+        Header:         !local.dragging
+                            ? "↖" 
+                            : "↔",
+        Position:       !local.dragging 
+                            ? RenderPosOf(CursorX() + 0.05, CursorY() - 0.105) 
+                            : RenderPosOf(CursorX(), CursorY() - 0.07),
         TextColor:      Color.White,
         Scale:          3,
         Clipping:       Clipping.DoNotClip,
@@ -398,7 +429,7 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
             break;
         case Ctrl.Stop:
             StopAll();
-            frame = 0;
+            frame = min_frame;
             break;
         case Ctrl.Rewind:
             rewind = true;
@@ -411,7 +442,7 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
             playing = false;
             break;
         case Ctrl.Start:
-            frame = 0;
+            frame = min_frame;
             break;
         case Ctrl.End:
             StopAll();
@@ -421,7 +452,7 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
             if (playing)
                 StopAll();
 
-            if (frame > 0)
+            if (frame > min_frame)
                 frame--;
             break;
         case Ctrl.NextFrame:
@@ -448,14 +479,14 @@ Number ffr_speed: 3; // how many frames to jump per tick during rewind/fast forw
 rule: "rewind"
 Event.OngoingPlayer
 if (rewind)
-if (frame > 0)
+if (frame > min_frame)
 {
     frame -= ffr_speed;
 
-    if (frame < 0)
+    if (frame < min_frame)
     {
         StopAll();
-        frame = 0;
+        frame = min_frame;
     }
 
     MinWait();
@@ -502,41 +533,121 @@ if (IsInteractHeld())
     }
 }
 
-
+playervar Boolean can_drag_seek;
+playervar Boolean can_drag_lhand;
+playervar Boolean can_drag_rhand;
+playervar Boolean dragging;
+playervar Number min_frame;
+playervar Number max_frames;
 playervar Number seek_pos;
 playervar Number frame;
 playervar Number lhandle_pos;
+playervar Number lhandle_normal;
 playervar Number rhandle_pos;
-Number max_frames: 5625;
+playervar Number rhandle_normal;
+Number total_frames: 5625; // TODO: change this to the total amount of frames in a recording when i finally get around to that 
 Number delta: 0.016;
-rule: "drag bar controls"
+rule: "drag seeker"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (can_drag)
+if (can_drag_seek)
 {
     // can probably do this better
-    seek_pos = NormalizedNumber(Clamp(CursorX(player), -2.60, 2.60), -2.60, 2.60); // normalize the position of the seeker from 0-1
-    frame = Floor(max_frames * seek_pos);
+    seek_pos = NormalizedNumber(Clamp(CursorX(player), lhandle_pos, rhandle_pos), -2.60, 2.60); // normalize the position of the seeker from 0-1
+    frame = Floor(total_frames * seek_pos);
 
     MinWait();
     LoopIfConditionIsTrue();
 }
 
-playervar Boolean can_drag;
-rule: "in bar bounds"
+rule: "drag lhandle"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (Abs(X) < 2.60)
-if (IsInRange(Y, -0.975, -0.825))
+if (can_drag_lhand)
 {
-    can_drag = true;
+    lhandle_pos = Clamp(CursorX(player), -2.60, rhandle_pos - 0.05);
+    lhandle_normal = NormalizedNumber(lhandle_pos, -2.60, 2.60);
+    min_frame = Floor(total_frames * lhandle_normal);
+
+    if (frame < min_frame)
+        frame = min_frame;
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+rule: "drag rhandle"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+if (can_drag_rhand)
+{
+    rhandle_pos = Clamp(CursorX(player), lhandle_pos + 0.05, 2.60);
+    rhandle_normal = NormalizedNumber(rhandle_pos, -2.60, 2.60);
+    max_frames = Floor(total_frames * rhandle_normal);
+
+    if (frame > max_frames)
+        frame = max_frames;
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+rule: "in lhandle bounds"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+if (IsInRange(X, lhandle_pos - 0.075, lhandle_pos + 0.075))
+if (IsInRange(Y, -0.80, -0.725))
+if (!dragging)
+{
+    can_drag_lhand = true;
+    dragging = true;
 
     if (playing || rewind || forward)
         StopAll();
 
     WaitUntil(!IsPrimaryHeld() || !tl, 99999);
 
-    can_drag = false;
+    can_drag_lhand = false;
+    dragging = false;
+}
+
+rule: "in rhandle bounds"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+if (IsInRange(X, rhandle_pos - 0.075, rhandle_pos + 0.075))
+if (IsInRange(Y, -0.80, -0.725))
+if (!dragging)
+{
+    can_drag_rhand = true;
+    dragging = true;
+
+    if (playing || rewind || forward)
+        StopAll();
+
+    WaitUntil(!IsPrimaryHeld() || !tl, 99999);
+
+    can_drag_rhand = false;
+    dragging = false;
+}
+
+
+rule: "in seek bounds"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+if (Abs(X) < 2.60)
+if (IsInRange(Y, -0.975, -0.825))
+if (!dragging)
+{
+    can_drag_seek = true;
+    dragging = true;
+
+    if (playing || rewind || forward)
+        StopAll();
+
+    WaitUntil(!IsPrimaryHeld() || !tl, 99999);
+
+    can_drag_seek = false;
+    dragging = false;
 }
 
 rule: "TL : Select Hovered Control Item"
@@ -548,8 +659,6 @@ if (IsPrimaryHeld())
     WaitUntil(!IsPrimaryHeld(), 99999);
 
     async! ControlSelectionHandler(sel_ctrl);
-    // Wait(0.5);
-    // LoopIfConditionIsTrue(); // loop to prevent players inputs from being eaten cuz otherwise it feels like shit
 }
 
 Number SCREEN_WIDTH:   3.65;
