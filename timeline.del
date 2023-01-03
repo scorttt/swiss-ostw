@@ -112,7 +112,7 @@ rule: "create timeline text"
                             ? SelectedPulse() 
                             : local.playback
                                 ? Color.White
-                                : Color.Gray,
+                                : CustomColor(180, 180, 180, 255),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -424,10 +424,13 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
     switch (ctrl)
     {
         case Ctrl.Play:
-            playback = true;
-            playing = true;
-            forward = false;
-            rewind = false;
+            if (frame != max_frames)
+            {
+                playback = true;
+                playing = true;
+                forward = false;
+                rewind = false;
+            }
             break;
         case Ctrl.Pause:
             StopAll();
@@ -437,16 +440,22 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
             frame = min_frame;
             break;
         case Ctrl.Rewind:
-            playback = true;
-            rewind = true;
-            forward = false;
-            playing = false;
+            if (frame != min_frame)
+            {
+                playback = true;
+                rewind = true;
+                forward = false;
+                playing = false;
+            }
             break;
         case Ctrl.Forward:
-            playback = true;
-            forward = true;
-            rewind = false;
-            playing = false;
+            if (frame != max_frames)
+            {
+                playback = true;
+                forward = true;
+                rewind = false;
+                playing = false;
+            }
             break;
         case Ctrl.Start:
             frame = min_frame;
@@ -555,7 +564,7 @@ playervar Number lhandle_pos;
 playervar Number lhandle_normal;
 playervar Number rhandle_pos;
 playervar Number rhandle_normal;
-Number total_frames: 5625; // TODO: change this to the total amount of frames in a recording when i finally get around to that 
+Number total_frames: 625; // TODO: change this to the total amount of frames in a recording when i finally get around to that 
 Number delta: 0.016;
 rule: "drag seeker"
 Event.OngoingPlayer
@@ -612,7 +621,7 @@ if (!dragging)
     can_drag_lhand = true;
     dragging = true;
 
-    if (playing || rewind || forward)
+    if (playback)
         StopAll();
 
     WaitUntil(!IsPrimaryHeld() || !tl, 99999);
@@ -631,7 +640,7 @@ if (!dragging)
     can_drag_rhand = true;
     dragging = true;
 
-    if (playing || rewind || forward)
+    if (playback)
         StopAll();
 
     WaitUntil(!IsPrimaryHeld() || !tl, 99999);
@@ -651,7 +660,7 @@ if (!dragging)
     can_drag_seek = true;
     dragging = true;
 
-    if (playing || rewind || forward)
+    if (playback)
         StopAll();
 
     WaitUntil(!IsPrimaryHeld() || !tl, 99999);
