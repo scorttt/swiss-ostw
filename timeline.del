@@ -65,7 +65,9 @@ rule: "create timeline text"
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.Play
                             ? SelectedPulse() 
-                            : Color.White,
+                            : local.frame != local.max_frame
+                                ? Color.White
+                                : CustomColor(180, 180, 180, 255),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -400,31 +402,31 @@ if (tl)
 if (IsInRange(Y, -1.15, -1.05))
 {
     
-    if      (!playback && IsInRange(X, -2.450, -2.325))
+    if      (!playback && frame != max_frame && IsInRange(X, -2.450, -2.325))
         sel_ctrl = Ctrl.Play;
 
-    else if (playback && IsInRange(X, -2.450, -2.325))
+    else if (playback &&                        IsInRange(X, -2.450, -2.325))
         sel_ctrl = Ctrl.Pause;
 
-    else if (playback && IsInRange(X, -2.325, -2.200))
+    else if (playback &&                        IsInRange(X, -2.325, -2.200))
         sel_ctrl = Ctrl.Stop;
 
-    else if (frame != min_frame && IsInRange(X, -2.200, -2.075))
+    else if (frame != min_frame &&              IsInRange(X, -2.200, -2.075))
         sel_ctrl = Ctrl.Rewind;
 
-    else if (frame != max_frame && IsInRange(X, -2.075, -1.950))
+    else if (frame != max_frame &&              IsInRange(X, -2.075, -1.950))
         sel_ctrl = Ctrl.Forward;
 
-    else if (frame != min_frame && IsInRange(X, -1.950, -1.850))
+    else if (frame != min_frame &&              IsInRange(X, -1.950, -1.850))
         sel_ctrl = Ctrl.Start;
 
-    else if (frame != max_frame && IsInRange(X, -1.850, -1.765))
+    else if (frame != max_frame &&              IsInRange(X, -1.850, -1.765))
         sel_ctrl = Ctrl.End;
 
-    else if (frame != min_frame && IsInRange(X, -1.765, -1.650))
+    else if (frame != min_frame &&              IsInRange(X, -1.765, -1.650))
         sel_ctrl = Ctrl.PrevFrame;
 
-    else if (frame != max_frame && IsInRange(X, -1.650, -1.565))
+    else if (frame != max_frame &&              IsInRange(X, -1.650, -1.565))
         sel_ctrl = Ctrl.NextFrame;
 
     else if (IsInRange(X, 2.10, 2.60))
@@ -520,7 +522,7 @@ Event.OngoingPlayer
 if (rewind)
 if (frame > min_frame)
 {
-    frame -= Min(ffr_speed, min_frame + frame);
+    frame -= Min(ffr_speed, frame - min_frame);
 
     if (frame <= min_frame) 
     {
@@ -608,7 +610,7 @@ Event.OngoingPlayer
 if (IsPrimaryHeld())
 if (can_drag_lhand)
 {
-    lhandle_pos = Clamp(CursorX(player), -2.60, rhandle_pos - 0.125);
+    lhandle_pos = Clamp(CursorX(player), -2.60, rhandle_pos - 0.1);
     lhandle_normal = NormalizedNumber(lhandle_pos, -2.60, 2.60);
     min_frame = Floor(total_frames * lhandle_normal);
 
@@ -624,7 +626,7 @@ Event.OngoingPlayer
 if (IsPrimaryHeld())
 if (can_drag_rhand)
 {
-    rhandle_pos = Clamp(CursorX(player), lhandle_pos + 0.125, 2.60);
+    rhandle_pos = Clamp(CursorX(player), lhandle_pos + 0.1, 2.60);
     rhandle_normal = NormalizedNumber(rhandle_pos, -2.60, 2.60);
     max_frame = Floor(total_frames * rhandle_normal);
 
