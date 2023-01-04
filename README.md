@@ -25,6 +25,6 @@ A work in progress Overwatch workshop mode built on [OSTW](https://github.com/It
     - Aim assist **(Not Implemented)**
 
 ## Notes and Limitations
-- Cursor controlled menus will only show correctly on 16:9 resolutions and non-CJK languages
+- Cursor controlled menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and game language is not set to Traditional/Simplified Chinese, Japanese, or Korean
 - Each frame is 0.016s (about 62.5 fps), 60s recording = 3,750 frames, 30s recording = 1,875 frames, etc. Because of this, it is not possible to have a recording in seconds end as a whole odd number
 - Server load is high while playback and recording is active, because of this it is recommended to only be used by one player. It will work with multiple players; however server crashes are likely
