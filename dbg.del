@@ -6,5 +6,5 @@ if (player == host)
 {
     ServerStats(player, 2);
     CreateHudText(host, null, <"Pos: <0>\nFacing: <1>\nRC: <2>", PositionOf(), Facing(), RayCastHitPosition(EyePos(), EyePos() + Facing() * 100, null, all, false)>, null, Location.Right, 0.5);
-    CreateHudText(host, null, <"(<0>, <1>)\nsel_ctrl: <2>\nCF: <3>, MNF: <4>, MXF: <5>", CursorX(), CursorY(), sel_ctrl, frame, min_frame, max_frame>, null, Location.Right, 0.6);
+    CreateHudText(host, null, <"(<0>, <1>)\nsel_ctrl: <2>\nanim: <3>\nclose_anim: <4>\nCF: <5>, MNF: <6>, MXF: <7>", CursorX(), CursorY(), sel_ctrl, anim, close_anim, frame, min_frame, max_frame>, null, Location.Right, 0.6);
 }
