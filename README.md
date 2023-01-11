@@ -26,5 +26,5 @@ A work in progress Overwatch workshop mode built on [OSTW](https://github.com/It
 
 ## Notes and Limitations
 - Cursor controlled menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and game language is not set to Traditional/Simplified Chinese, Japanese, or Korean
-- Frame rate is about 62.5 FPS, and each frame is 0.016 seconds long (1s/0.016s = 62.5)
+- Framerate is about 62.5 FPS, with each frame lasting 0.016 seconds (1s/0.016s = 62.5)
 - Server load is high while playback and recording is active, because of this it is recommended to only be used by one player. It will work with multiple players; however server crashes are likely
