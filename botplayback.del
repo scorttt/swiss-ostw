@@ -24,11 +24,11 @@ if (recording)
 {
     MinWait();
 
-    rec_data += [ThrottleOf(), 
+    rec_data += [[ThrottleOf(), 
                  Facing(), 
                  FilteredArray(BUTTONS, !IsButtonHeld(player, Curr()) && prev_kf_inputs[CurrentArrayIndex()]), 
                  FilteredArray(BUTTONS, IsButtonHeld(player, Curr()) && !prev_kf_inputs[CurrentArrayIndex()]), 
-                 FilteredArray(curr_kf_inputs, !IsButtonHeld(player, Curr()))];
+                 FilteredArray(curr_kf_inputs, !IsButtonHeld(player, Curr()))]];
 
     prev_kf_inputs = MappedArray(BUTTONS, IsButtonHeld(player, Curr()));
     curr_kf_inputs = []; 
