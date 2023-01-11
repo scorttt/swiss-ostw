@@ -3,10 +3,9 @@ playervar Vector facing; // cursor math facing vector to compare
 playervar Boolean tl; // if timeline is open
 playervar Number sel_ctrl; // selected control item
 
-globalvar Number[] CTRL_X_POS;
-globalvar Number[] TL_Y_POS;
-playervar Number[] ctrl_x_pos;
-globalvar Number[] tl_y_pos;
+globalvar Number[] ITEM_POS;
+playervar Number[] item_pos;
+
 
 Color SelectedPulse(): 
     CustomColor(Oscillate(500, 0, 116), Oscillate(500, 153, 199), 255, 255);
@@ -49,19 +48,35 @@ String FormattedFrameToSec(Number f): <"<0>:<1><2>",
                                     : "", 
                                 f % 62.5 != 0 
                                     ? FrameToSeconds(f) % 60
-                                    : <String>(FrameToSeconds(f) % 60) + ".00">;
+                                    : <String>(FrameToSeconds(f) % 60) + ".00">; // this is stupid
 
 rule: "create timeline text"
 {
     Number tooltip_y : -1.25;
-    CTRL_X_POS = [];
-    TL_Y_POS = [];
+    ITEM_POS = 
+    [
+        -1.160, // 0 play
+        -1.150, // 1 pause 
+        -1.155, // 2 stop 
+        -1.150, // 3 rewind
+        -1.150, // 4 forward
+        -1.150, // 5 start
+        -1.150, // 6 end 
+        -1.150, // 7 prev frame 
+        -1.150, // 8 next frame 
+        -1.075, // 9 curr frame
+        -1.150, // 10 options
+        -1.350, // 11 progress bar
+        -0.955, // 12 seeker
+        -0.800, // 13 handles
+        -0.725  // 14 handle timestamp
+    ]; 
 
     // play
     CreateInWorldText(
-        VisibleTo:      local.tl && !local.playback ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) && !local.playback ? local : null, 
         Header:         "▶",
-        Position:       RenderPosOf(-2.38, -1.16), 
+        Position:       RenderPosOf(-2.380, local.item_pos[0]), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.Play
                             ? SelectedPulse() 
@@ -72,8 +87,10 @@ rule: "create timeline text"
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Play ? local : null, 
-        Header:         "Play",
+        VisibleTo:      local.tl && (local.sel_ctrl == Ctrl.Play || local.sel_ctrl == Ctrl.Pause) ? local : null, 
+        Header:         !local.playback 
+                            ? "Play" 
+                            : "Pause",
         Position:       RenderPosOf(-2.38, tooltip_y), 
         Scale:          1,
         TextColor:      Color.White,
@@ -83,9 +100,9 @@ rule: "create timeline text"
 
     // pause
     CreateInWorldText(
-        VisibleTo:      local.tl && local.playback ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) && local.playback ? local : null, 
         Header:         "┃",
-        Position:       RenderPosOf(-2.40, -1.15), 
+        Position:       RenderPosOf(-2.405, local.item_pos[1]), 
         Scale:          1.5,
         TextColor:      local.sel_ctrl == Ctrl.Pause
                             ? SelectedPulse() 
@@ -94,31 +111,23 @@ rule: "create timeline text"
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.playback ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) && local.playback ? local : null, 
         Header:         "┃",
-        Position:       RenderPosOf(-2.36, -1.15), 
+        Position:       RenderPosOf(-2.365, local.item_pos[1]), 
         Scale:          1.5,
         TextColor:      local.sel_ctrl == Ctrl.Pause
                             ? SelectedPulse() 
                             : Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-        Clipping:       Clipping.DoNotClip,
-        Spectators:     Spectators.VisibleNever);
-    CreateInWorldText(
-        VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Pause ? local : null, 
-        Header:         "Pause",
-        Position:       RenderPosOf(-2.38, tooltip_y), 
-        Scale:          1,
-        TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
+
     // stop
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         "■",
-        Position:       RenderPosOf(-2.25, -1.155), 
+        Position:       RenderPosOf(-2.250, local.item_pos[2]), 
         Scale:          1.75,
         TextColor:      local.sel_ctrl == Ctrl.Stop
                             ? SelectedPulse() 
@@ -131,7 +140,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.sel_ctrl == Ctrl.Stop ? local : null, 
         Header:         "Stop",
-        Position:       RenderPosOf(-2.25, tooltip_y), 
+        Position:       RenderPosOf(-2.250, tooltip_y), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -140,9 +149,9 @@ rule: "create timeline text"
 
     // rewind
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         "«",
-        Position:       RenderPosOf(-2.125, -1.15), 
+        Position:       RenderPosOf(-2.125, local.item_pos[3]), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.Rewind
                             ? SelectedPulse() 
@@ -164,9 +173,9 @@ rule: "create timeline text"
 
     // forward
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         "»",
-        Position:       RenderPosOf(-2, -1.15), 
+        Position:       RenderPosOf(-2.000, local.item_pos[4]), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.Forward
                             ? SelectedPulse() 
@@ -188,9 +197,9 @@ rule: "create timeline text"
 
     // jump to start
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         "≤",
-        Position:       RenderPosOf(-1.9, -1.15), 
+        Position:       RenderPosOf(-1.900, local.item_pos[5]), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.Start
                             ? SelectedPulse() 
@@ -212,9 +221,9 @@ rule: "create timeline text"
 
     // jump to end
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         "≥",
-        Position:       RenderPosOf(-1.8, -1.15), 
+        Position:       RenderPosOf(-1.800, local.item_pos[6]), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.End
                             ? SelectedPulse() 
@@ -236,9 +245,9 @@ rule: "create timeline text"
 
     // prev frame
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         "←",
-        Position:       RenderPosOf(-1.7, -1.15), 
+        Position:       RenderPosOf(-1.700, local.item_pos[7]), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.PrevFrame
                             ? SelectedPulse() 
@@ -260,9 +269,9 @@ rule: "create timeline text"
 
     // next frame
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         "→",
-        Position:       RenderPosOf(-1.6, -1.15), 
+        Position:       RenderPosOf(-1.600, local.item_pos[8]), 
         Scale:          2,
         TextColor:      local.sel_ctrl == Ctrl.NextFrame
                             ? SelectedPulse() 
@@ -284,9 +293,9 @@ rule: "create timeline text"
 
     // current frame
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         <"<0>", local.frame>,
-        Position:       RenderPosOf(-1.6515, -1.075), 
+        Position:       RenderPosOf(-1.6515, local.item_pos[9]), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -295,9 +304,9 @@ rule: "create timeline text"
 
     // options
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      (local.tl || local.close_anim) ? local : null, 
         Header:         "Options",
-        Position:       RenderPosOf(2.35, -1.15), 
+        Position:       RenderPosOf(2.350, local.item_pos[10]), 
         Scale:          1.5,
         TextColor:      local.sel_ctrl == Ctrl.Options
                             ? SelectedPulse() 
@@ -308,19 +317,19 @@ rule: "create timeline text"
 
     // progress bar
     CreateProgressBarInWorldText(
-        VisibleTo:        local.tl ? local : null, 
-        Text:             FormattedFrameToSec(local.frame), // THIS IS SO DUMB
+        VisibleTo:        local.tl || local.close_anim ? local : null, 
+        Text:             FormattedFrameToSec(local.frame),
         Value:            (local.frame / total_frames) * 100,
-        Position:         RenderPosOf(0, -1.35), 
+        Position:         RenderPosOf(0, local.item_pos[11]), 
         Scale:            3.2,
         ProgressBarColor: Color.White,
         Reevaluation:     ProgressBarWorldEvaluation.VisibleToPositionAndValues,
         Clipping:         Clipping.DoNotClip);
     // seeker
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null,
+        VisibleTo:      local.tl || local.close_anim ? local : null,
         Header:         "┃",
-        Position:       RenderPosOf(((local.frame / total_frames) * 5.2) - 2.6, -0.955), 
+        Position:       RenderPosOf(((local.frame / total_frames) * 5.2) - 2.6, local.item_pos[12]), 
         Scale:          2.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -328,9 +337,9 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
     // left handle
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      local.tl || local.close_anim ? local : null, 
         Header:         "▼",
-        Position:       RenderPosOf(local.lhandle_pos - 0.003, -0.800), 
+        Position:       RenderPosOf(local.lhandle_pos - 0.003, local.item_pos[13]), 
         Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -338,9 +347,9 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
     // left handle min timestamp
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      local.tl || local.close_anim ? local : null, 
         Header:         FormattedFrameToSec(local.min_frame),
-        Position:       RenderPosOf(local.lhandle_pos - 0.003, -0.725), 
+        Position:       RenderPosOf(local.lhandle_pos - 0.003, local.item_pos[14]), 
         Scale:          0.65,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -348,9 +357,9 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
     // right handle
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      local.tl || local.close_anim ? local : null, 
         Header:         "▼",
-        Position:       RenderPosOf(local.rhandle_pos - 0.003, -0.800), 
+        Position:       RenderPosOf(local.rhandle_pos - 0.003, local.item_pos[13]), 
         Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -358,9 +367,9 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
     // right handle max timestamp
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null, 
+        VisibleTo:      local.tl || local.close_anim ? local : null, 
         Header:         FormattedFrameToSec(local.max_frame),
-        Position:       RenderPosOf(local.rhandle_pos - 0.003, -0.725), 
+        Position:       RenderPosOf(local.rhandle_pos - 0.003, local.item_pos[14]), 
         Scale:          0.65,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -380,6 +389,63 @@ rule: "create timeline text"
         Clipping:       Clipping.DoNotClip,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor
     );
+}
+
+playervar Boolean anim;
+playervar Boolean close_anim;
+
+Number anim_start: -2.9;
+Number anim_end: -2.89;
+
+Number anim_speed: 0.3;
+rule: "open anim"
+Event.OngoingPlayer
+if (tl)
+if (!close_anim)
+{
+    anim = true;
+
+    while (tl && anim)
+    {
+        for (Number i = 0; i < ITEM_POS.Length; i++)
+            item_pos[i] += (ITEM_POS[i] - item_pos[i]) * anim_speed;
+
+        if (item_pos.Last >= ITEM_POS.Last - 0.01)
+        {
+            anim = false;
+            break;
+        }
+
+        MinWait();
+    }
+
+    anim = false;
+}
+
+rule: "close anim"
+Event.OngoingPlayer
+if (!tl)
+{
+    WaitUntil(!anim, 1);
+    close_anim = true;
+    anim = true;
+
+    while (anim && close_anim)
+    {
+        for (Number i = 0; i < ITEM_POS.Length; i++)
+            item_pos[i] += (anim_start - item_pos[i]) * anim_speed;
+
+        if (item_pos.Last <= anim_end)
+        {
+            anim = false;
+            break;
+        }
+
+        MinWait();
+    }
+
+    anim = false;
+    close_anim = false;
 }
 
 
@@ -511,6 +577,15 @@ if (playing)
 if (frame < max_frame)
 {
     frame++;
+
+    if (frame >= max_frame)
+    {
+        StopAll();
+
+        if (frame > max_frame)
+            frame = max_frame;
+    }
+
     MinWait(); // each frame lasts for 0.016s, so increment by 1 every 0.016s
     LoopIfConditionIsTrue();
 }
@@ -615,7 +690,10 @@ if (can_drag_lhand)
     min_frame = Floor(total_frames * lhandle_normal);
 
     if (frame < min_frame)
+    {
+        StopAll();
         frame = min_frame;
+    }
 
     MinWait();
     LoopIfConditionIsTrue();
@@ -631,7 +709,10 @@ if (can_drag_rhand)
     max_frame = Floor(total_frames * rhandle_normal);
 
     if (frame > max_frame)
+    {
+        StopAll();
         frame = max_frame;
+    }
 
     MinWait();
     LoopIfConditionIsTrue();
@@ -646,9 +727,6 @@ if (!dragging)
 {
     can_drag_lhand = true;
     dragging = true;
-
-    if (playback)
-        StopAll();
 
     WaitUntil(!IsPrimaryHeld() || !tl, 99999);
 
@@ -666,8 +744,6 @@ if (!dragging)
     can_drag_rhand = true;
     dragging = true;
 
-    if (playback)
-        StopAll();
 
     WaitUntil(!IsPrimaryHeld() || !tl, 99999);
 
@@ -694,7 +770,7 @@ if (!dragging)
     dragging = false;
 }
 
-rule: "TL : Select Hovered Control Item"
+rule: "select hovered tl control item"
 Event.OngoingPlayer
 if (tl)
 if (sel_ctrl != Ctrl.Invalid)
@@ -708,7 +784,7 @@ if (IsPrimaryHeld())
 
 Number SCREEN_WIDTH:   3.65;
 Number SCREEN_HEIGHT:  2.125;
-rule: "Cursor : Reset Cursor if outside of screen bounds"
+rule: "outside of screen bounds"
 Event.OngoingPlayer
 if (tl)
 if (Abs(CursorX(player)) > SCREEN_WIDTH || Abs(CursorY(player)) > SCREEN_HEIGHT)
