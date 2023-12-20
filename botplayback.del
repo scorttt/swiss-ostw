@@ -1,36 +1,36 @@
 import "main.del";
-globalvar Button[] BUTTONS;
-playervar Boolean recording;
-playervar Any[] rec_data;
-playervar Any[] prev_kf_inputs;
-playervar Button[] curr_kf_inputs;
+// globalvar Button[] BUTTONS;
+// playervar Boolean isRecording;
+// playervar Any[] recordingData;
+// playervar Any[] prevKfInputs;
+// playervar Button[] currKfInputs;
 
-rule: "Bot Playback Init"
-{
-    BUTTONS = [Button.PrimaryFire, Button.SecondaryFire, Button.Ability1, Button.Ability2, Button.Ultimate, Button.Jump, Button.Crouch, Button.Melee, Button.Reload];
-}
+// rule: "Bot Playback Init"
+// {
+//     BUTTONS = [Button.PrimaryFire, Button.SecondaryFire, Button.Ability1, Button.Ability2, Button.Ultimate, Button.Jump, Button.Crouch, Button.Melee, Button.Reload];
+// }
 
-rule: "recording toggle"
-Event.OngoingPlayer
-if (!IsDummyBot())
-if (IsCrouchHeld()) // TODO: change this to the timeline options menu
-{
-    recording = !recording;
-}
+// rule: "recording toggle"
+// Event.OngoingPlayer
+// if (!IsDummyBot())
+// if (IsCrouchHeld()) // TODO: change this to the timeline options menu
+// {
+//     isRecording = !isRecording;
+// }
 
-rule: "record movement"
-Event.OngoingPlayer
-if (recording)
-{
-    MinWait();
+// rule: "record movement"
+// Event.OngoingPlayer
+// if (isRecording)
+// {
+//     MinWait();
 
-    rec_data += [[ThrottleOf(), 
-                 Facing(), 
-                 FilteredArray(BUTTONS, !IsButtonHeld(player, Curr()) && prev_kf_inputs[CurrentArrayIndex()]), 
-                 FilteredArray(BUTTONS, IsButtonHeld(player, Curr()) && !prev_kf_inputs[CurrentArrayIndex()]), 
-                 FilteredArray(curr_kf_inputs, !IsButtonHeld(player, Curr()))]];
+//     recordingData += [[ThrottleOf(), 
+//                  Facing(), 
+//                  FilteredArray(BUTTONS, !IsButtonHeld(player, Curr()) && prevKfInputs[CurrentArrayIndex()]), 
+//                  FilteredArray(BUTTONS, IsButtonHeld(player, Curr()) && !prevKfInputs[CurrentArrayIndex()]), 
+//                  FilteredArray(currKfInputs, !IsButtonHeld(player, Curr()))]];
 
-    prev_kf_inputs = MappedArray(BUTTONS, IsButtonHeld(player, Curr()));
-    curr_kf_inputs = []; 
-    LoopIfConditionIsTrue();
-}
+//     prevKfInputs = MappedArray(BUTTONS, IsButtonHeld(player, Curr()));
+//     currKfInputs = []; 
+//     LoopIfConditionIsTrue();
+// }
