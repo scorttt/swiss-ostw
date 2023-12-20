@@ -52,7 +52,7 @@ String FormattedFrameToSec(Number f): StringReplace(<"<0>:<1><2>",
 
 rule: "create timeline text"
 {
-    Number tooltip_y : -1.25;
+    Number tooltipY : -1.25;
     TIMELINE_POS = 
     [
         -1.160, // 0 play
@@ -92,7 +92,7 @@ rule: "create timeline text"
         Header:         !local.playback 
                             ? <"Play [<0>]", BindString(Button.Jump)>
                             : <"Pause [<0>]", BindString(Button.Jump)>,
-        Position:       RenderPosOf(-2.38, tooltip_y), 
+        Position:       RenderPosOf(-2.38, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -141,7 +141,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.selectedButton == Ctrl.Stop ? local : null, 
         Header:         "Stop",
-        Position:       RenderPosOf(-2.250, tooltip_y), 
+        Position:       RenderPosOf(-2.250, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -165,7 +165,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.selectedButton == Ctrl.Rewind ? local : null, 
         Header:         "Rewind",
-        Position:       RenderPosOf(-2.125, tooltip_y), 
+        Position:       RenderPosOf(-2.125, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -189,7 +189,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.selectedButton == Ctrl.Forward ? local : null, 
         Header:         "Fast Forward",
-        Position:       RenderPosOf(-2, tooltip_y), 
+        Position:       RenderPosOf(-2, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -213,7 +213,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.selectedButton == Ctrl.ToStart ? local : null, 
         Header:         <"To Start [Crouch + <0>]", BindString(Button.Ultimate)>,
-        Position:       RenderPosOf(-1.9, tooltip_y), 
+        Position:       RenderPosOf(-1.9, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -237,7 +237,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.selectedButton == Ctrl.ToEnd ? local : null, 
         Header:         <"To End [Crouch + <0>]", BindString(Button.Ability2)>,
-        Position:       RenderPosOf(-1.8, tooltip_y), 
+        Position:       RenderPosOf(-1.8, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -261,7 +261,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.selectedButton == Ctrl.PrevFrame ? local : null, 
         Header:         <"Previous Frame [<0>]", BindString(Button.Ultimate)>,
-        Position:       RenderPosOf(-1.7, tooltip_y), 
+        Position:       RenderPosOf(-1.7, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -285,7 +285,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl && local.selectedButton == Ctrl.NextFrame ? local : null, 
         Header:         <"Next Frame [<0>]", BindString(Button.Ability2)>,
-        Position:       RenderPosOf(-1.6, tooltip_y), 
+        Position:       RenderPosOf(-1.6, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
