@@ -548,6 +548,8 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
         case Ctrl.Rewind:
             if (rewind && frameMult != 8)
                 frameMult += 2;
+            else if (!rewind || forward)
+                frameMult = 2;
 
             if (currFrame != minFrame)
             {
@@ -560,6 +562,8 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
         case Ctrl.Forward:
             if (forward && frameMult != 8)
                 frameMult += 2;
+            else if (!forward || rewind)
+                frameMult = 2;
 
             if (currFrame != maxFrame)
             {
