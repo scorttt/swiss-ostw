@@ -27,3 +27,15 @@ A work in progress Overwatch workshop mode built on [OSTW](https://github.com/It
 - Cursor controlled menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and game language is not set to Traditional/Simplified Chinese, Japanese, or Korean
 - Framerate is about 62.5 FPS, with each frame lasting 0.016 seconds (1s/0.016s = 62.5)
 - Server load is high while playback and recording is active, because of this it is recommended to only be used by one player. It will work with multiple players; however server crashes are likely
+
+## Compiling
+My [`macros`](https://github.com/scorttt/macros-ostw) repo must be placed in a folder named `macros-ostw` above Swiss' parent directory. The folder structure should appear as follows: 
+```
+macros-ostw
+    ├ main.del
+    └ other macro files
+
+swiss-ostw
+    ├ main.del
+    └ other swiss files
+```
