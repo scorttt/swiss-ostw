@@ -1,0 +1,32 @@
+{
+  "Lobby": {
+    "Allow Players Who Are In Queue": true,
+    "Map Rotation": "After A Game",
+    "Max Team 1 Players": 1,
+    "Max Team 2 Players": 1,
+    "Max Spectators": 2,
+    "Return To Lobby": "Never"
+  },
+  "Modes": {
+    "All": {
+      "Respawn Time Scalar": 0,
+      "Hero Limit": "Off",
+      "Game Mode Start": "Immediately"
+    },
+    "Skirmish": {"Enabled Maps": ["Workshop Chamber"]}
+  },
+  "Extensions": { 
+    "Beam Effects": true,
+    "Beam Sounds": true,
+    "Buff and Debuff Sounds": true,
+    "Buff Status Effects": true,
+    "Debuff Status Effects": true,
+    "Energy Explosion Effects": true,
+    "Explosion Sounds": true,
+    "Kinetic Explosion Effects": true,
+    "Play More Effects": true, 
+    "Spawn More Dummy Bots": true
+  },
+  "Mode Name": "Swiss",
+  "Description": "Provides a slew of movie making features for content creators\nCode: TBD\nCreated by scort#11221"
+}

@@ -1,0 +1,11 @@
+import "../macros-ostw/main.del";
+import "settings.json";
+
+import "camera.del";
+import "timeline.del";
+import "dbg.del";
+
+rule: "Initial Global"
+{
+    PauseMatchTime();
+}
