@@ -3,8 +3,9 @@ playervar Vector facing; // cursor math facing vector to compare
 playervar Boolean tl; // if timeline is open
 playervar Number selectedButton; // selected control item
 
-globalvar Number[] TIMELINE_POS;
-playervar Number[] timelinePos;
+globalvar Number[] TIMELINE_CTRL_X_POS;
+globalvar Number[] TIMELINE_CTRL_Y_POS;
+playervar Number[] timelineCtrlYPos;
 
 
 Color SelectedPulse(): 
@@ -50,10 +51,13 @@ String FormattedFrameToSec(Number f): StringReplace(<"<0>:<1><2>",
                                     ? FrameToSeconds(f) % 60
                                     : <String>(FrameToSeconds(f) % 60) + ":00">, ".", ":"); // this is stupid
 
+Color DisabledButtonColor(): CustomColor(140, 140, 140, 255);
+
 rule: "create timeline text"
 {
     Number tooltipY : -1.25;
-    TIMELINE_POS = 
+
+    TIMELINE_CTRL_Y_POS = 
     [
         -1.160, // 0 play
         -1.150, // 1 pause 
@@ -77,13 +81,13 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) && !local.playback ? local : null, 
         Header:         "▶",
-        Position:       RenderPosOf(-2.380, local.timelinePos[0]), 
+        Position:       RenderPosOf(-2.380, local.timelineCtrlYPos[0]), 
         Scale:          2,
         TextColor:      local.selectedButton == Ctrl.Play
                             ? SelectedPulse() 
                             : local.currFrame != local.maxFrame
                                 ? Color.White
-                                : CustomColor(180, 180, 180, 255),
+                                : DisabledButtonColor(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -103,7 +107,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) && local.playback ? local : null, 
         Header:         "┃",
-        Position:       RenderPosOf(-2.405, local.timelinePos[1]), 
+        Position:       RenderPosOf(-2.405, local.timelineCtrlYPos[1]), 
         Scale:          1.5,
         TextColor:      local.selectedButton == Ctrl.Pause
                             ? SelectedPulse() 
@@ -114,7 +118,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) && local.playback ? local : null, 
         Header:         "┃",
-        Position:       RenderPosOf(-2.365, local.timelinePos[1]), 
+        Position:       RenderPosOf(-2.365, local.timelineCtrlYPos[1]), 
         Scale:          1.5,
         TextColor:      local.selectedButton == Ctrl.Pause
                             ? SelectedPulse() 
@@ -128,13 +132,13 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         "■",
-        Position:       RenderPosOf(-2.250, local.timelinePos[2]), 
+        Position:       RenderPosOf(-2.250, local.timelineCtrlYPos[2]), 
         Scale:          1.75,
         TextColor:      local.selectedButton == Ctrl.Stop
                             ? SelectedPulse() 
                             : local.playback
                                 ? Color.White
-                                : CustomColor(180, 180, 180, 255),
+                                : DisabledButtonColor(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -152,13 +156,13 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         "«",
-        Position:       RenderPosOf(-2.125, local.timelinePos[3]), 
+        Position:       RenderPosOf(-2.125, local.timelineCtrlYPos[3]), 
         Scale:          2,
         TextColor:      local.selectedButton == Ctrl.Rewind
                             ? SelectedPulse() 
                             : local.currFrame != local.minFrame
                                 ? Color.White
-                                : CustomColor(180, 180, 180, 255),
+                                : DisabledButtonColor(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -176,13 +180,13 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         "»",
-        Position:       RenderPosOf(-2.000, local.timelinePos[4]), 
+        Position:       RenderPosOf(-2.000, local.timelineCtrlYPos[4]), 
         Scale:          2,
         TextColor:      local.selectedButton == Ctrl.Forward
                             ? SelectedPulse() 
                             : local.currFrame != local.maxFrame
                                 ? Color.White
-                                : CustomColor(180, 180, 180, 255),
+                                : DisabledButtonColor(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -200,13 +204,13 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         "≤",
-        Position:       RenderPosOf(-1.900, local.timelinePos[5]), 
+        Position:       RenderPosOf(-1.900, local.timelineCtrlYPos[5]), 
         Scale:          2,
         TextColor:      local.selectedButton == Ctrl.ToStart
                             ? SelectedPulse() 
                             : local.currFrame != local.minFrame
                                 ? Color.White
-                                : CustomColor(180, 180, 180, 255),
+                                : DisabledButtonColor(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -224,13 +228,13 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         "≥",
-        Position:       RenderPosOf(-1.800, local.timelinePos[6]), 
+        Position:       RenderPosOf(-1.800, local.timelineCtrlYPos[6]), 
         Scale:          2,
         TextColor:      local.selectedButton == Ctrl.ToEnd
                             ? SelectedPulse() 
                             : local.currFrame != local.maxFrame
                                 ? Color.White
-                                : CustomColor(180, 180, 180, 255),
+                                : DisabledButtonColor(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -248,13 +252,13 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         "←",
-        Position:       RenderPosOf(-1.700, local.timelinePos[7]), 
+        Position:       RenderPosOf(-1.700, local.timelineCtrlYPos[7]), 
         Scale:          2,
         TextColor:      local.selectedButton == Ctrl.PrevFrame
                             ? SelectedPulse() 
                             : local.currFrame != local.minFrame
                                 ? Color.White
-                                : CustomColor(180, 180, 180, 255),
+                                : DisabledButtonColor(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -272,13 +276,13 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         "→",
-        Position:       RenderPosOf(-1.600, local.timelinePos[8]), 
+        Position:       RenderPosOf(-1.600, local.timelineCtrlYPos[8]), 
         Scale:          2,
         TextColor:      local.selectedButton == Ctrl.NextFrame
                             ? SelectedPulse() 
                             : local.currFrame != local.maxFrame
                                 ? Color.White
-                                : CustomColor(180, 180, 180, 255),
+                                : DisabledButtonColor(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
@@ -296,7 +300,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         <"<0>", local.currFrame>,
-        Position:       RenderPosOf(-1.6515, local.timelinePos[9]), 
+        Position:       RenderPosOf(-1.6515, local.timelineCtrlYPos[9]), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -307,7 +311,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
         Header:         "Options",
-        Position:       RenderPosOf(2.350, local.timelinePos[10]), 
+        Position:       RenderPosOf(2.350, local.timelineCtrlYPos[10]), 
         Scale:          1.5,
         TextColor:      local.selectedButton == Ctrl.Options
                             ? SelectedPulse() 
@@ -321,7 +325,7 @@ rule: "create timeline text"
         VisibleTo:        local.tl || local.closeAnim ? local : null, 
         Text:             FormattedFrameToSec(local.currFrame),
         Value:            (local.currFrame / totalFrames) * 100,
-        Position:         RenderPosOf(0, local.timelinePos[11]), 
+        Position:         RenderPosOf(0, local.timelineCtrlYPos[11]), 
         Scale:            3.2,
         ProgressBarColor: Color.White,
         Reevaluation:     ProgressBarWorldEvaluation.VisibleToPositionAndValues,
@@ -330,7 +334,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl || local.closeAnim ? local : null,
         Header:         "┃",
-        Position:       RenderPosOf(((local.currFrame / totalFrames) * 5.2) - 2.6, local.timelinePos[12]), // convert 0-1 value to -2.6-2.6 for positioning
+        Position:       RenderPosOf(((local.currFrame / totalFrames) * 5.2) - 2.6, local.timelineCtrlYPos[12]), // convert 0-1 value to -2.6-2.6 for positioning
         Scale:          2.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -340,7 +344,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl || local.closeAnim ? local : null, 
         Header:         "▼",
-        Position:       RenderPosOf(local.leftHandlePos - 0.003, local.timelinePos[13]), 
+        Position:       RenderPosOf(local.leftHandlePos - 0.003, local.timelineCtrlYPos[13]), 
         Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -350,7 +354,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl || local.closeAnim ? local : null, 
         Header:         FormattedFrameToSec(local.minFrame),
-        Position:       RenderPosOf(local.leftHandlePos - 0.003, local.timelinePos[14]), 
+        Position:       RenderPosOf(local.leftHandlePos - 0.003, local.timelineCtrlYPos[14]), 
         Scale:          0.65,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -360,7 +364,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl || local.closeAnim ? local : null, 
         Header:         "▼",
-        Position:       RenderPosOf(local.rightHandlePos - 0.003, local.timelinePos[13]), 
+        Position:       RenderPosOf(local.rightHandlePos - 0.003, local.timelineCtrlYPos[13]), 
         Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -370,7 +374,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl || local.closeAnim ? local : null, 
         Header:         FormattedFrameToSec(local.maxFrame),
-        Position:       RenderPosOf(local.rightHandlePos - 0.003, local.timelinePos[14]), 
+        Position:       RenderPosOf(local.rightHandlePos - 0.003, local.timelineCtrlYPos[14]), 
         Scale:          0.65,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -381,7 +385,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) && (local.rewind || local.forward) ? local : null, 
         Header:         <"x<0>", local.frameMult>,
-        Position:       RenderPosOf(-2.065, local.timelinePos[15]), 
+        Position:       RenderPosOf(-2.065, local.timelineCtrlYPos[15]), 
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -419,10 +423,10 @@ if (!closeAnim)
 
     while (tl && anim)
     {
-        for (Number i = 0; i < TIMELINE_POS.Length; i++)
-            timelinePos[i] += (TIMELINE_POS[i] - timelinePos[i]) * animSpeed;
+        for (Number i = 0; i < TIMELINE_CTRL_Y_POS.Length; i++)
+            timelineCtrlYPos[i] += (TIMELINE_CTRL_Y_POS[i] - timelineCtrlYPos[i]) * animSpeed;
 
-        if (timelinePos.Last >= TIMELINE_POS.Last - 0.01)
+        if (timelineCtrlYPos.Last >= TIMELINE_CTRL_Y_POS.Last - 0.01)
         {
             anim = false;
             break;
@@ -444,10 +448,10 @@ if (!tl)
 
     while (anim && closeAnim)
     {
-        for (Number i = 0; i < TIMELINE_POS.Length; i++)
-            timelinePos[i] += (animStart - timelinePos[i]) * animSpeed;
+        for (Number i = 0; i < TIMELINE_CTRL_Y_POS.Length; i++)
+            timelineCtrlYPos[i] += (animStart - timelineCtrlYPos[i]) * animSpeed;
 
-        if (timelinePos.Last <= animEnd)
+        if (timelineCtrlYPos.Last <= animEnd)
         {
             anim = false;
             break;
@@ -682,12 +686,14 @@ if (isDraggingSeeker)
     LoopIfConditionIsTrue();
 }
 
+Number handleSpacingOffset: 0.0925; // spacer to prevent the left and right handles from going over each other, 0.0925 is 100 frames
+
 rule: "drag lhandle"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
 if (isDraggingLHandle)
 {
-    leftHandlePos = Clamp(CursorX(player), -2.60, rightHandlePos - 0.1);
+    leftHandlePos = Clamp(CursorX(player), -2.60, rightHandlePos - handleSpacingOffset);
     leftHandleNormal = NormalizedRange(leftHandlePos, -2.60, 2.60);
     minFrame = Floor(totalFrames * leftHandleNormal);
 
@@ -706,7 +712,7 @@ Event.OngoingPlayer
 if (IsPrimaryHeld())
 if (isDraggingRHandle)
 {
-    rightHandlePos = Clamp(CursorX(player), leftHandlePos + 0.1, 2.60);
+    rightHandlePos = Clamp(CursorX(player), leftHandlePos + handleSpacingOffset, 2.60);
     rightHandleNormal = NormalizedRange(rightHandlePos, -2.60, 2.60);
     maxFrame = Floor(totalFrames * rightHandleNormal);
 
