@@ -63,7 +63,7 @@ Event.OnPlayerJoin
     rightHandlePos = 2.60;
 }
 
-Number FrameToSeconds(Number f): (f / totalFrames * (totalFrames * 0.016) / 1);
+Number FrameToSeconds(Number f): (f / totalFrames * (totalFrames * 0.016));
 String FormattedFrameToSec(Number f): StringReplace(<"<0>:<1><2>", 
                                           Floor(FrameToSeconds(f) / 60) % 60, 
                                           Floor(FrameToSeconds(f) % 60) < 10 

@@ -6,5 +6,5 @@ if (player == host)
 {
     ServerLoadHUD(player);
     CreateHudText(host, null, <"Pos: <0>\nFacing: <1>\nRC: <2>", PositionOf(), Facing(), RayHit(EyePos(), EyePos() + Facing() * 100, null, All())>, null, Location.Right, 0.5);
-    CreateHudText(host, null, <"(<0>, <1>)\nsel_ctrl: <2>\nanim: <3>\nclose_anim: <4>\nCF: <5>, MNF: <6>, MXF: <7>", CursorX(), CursorY(), selectedButton, anim, closeAnim, currFrame, minFrame, maxFrame>, null, Location.Right, 0.6);
+    CreateHudText(host, null, <"(<0>, <1>)\nselectedButton: <2>\nanim: <3>\ncloseAnim: <4>\nCF: <5>, MNF: <6>, MXF: <7>", CursorX(), CursorY(), selectedButton, anim, closeAnim, currFrame, minFrame, maxFrame>, null, Location.Right, 0.6);
 }
