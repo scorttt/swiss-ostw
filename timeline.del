@@ -14,6 +14,14 @@ Color DisabledButtonColor(): CustomColor(140, 140, 140, 255);
 Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), HorizontalAngleFromDirection(p.facing));
 Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), VerticalAngleFromDirection(p.facing));
 
+String PrettyNumber(Number | String number): 
+        StringLength(number) <= 3
+            ? number
+            : StringLength(number) <= 6
+                ? StringSlice(number, 0, StringLength(number) - 3) + "," + StringSlice(number, StringLength(number) - 3, 3)
+                : StringSlice(number, 0, StringLength(number) - 6) + "," + StringSlice(number, StringLength(number) - 6, 3) + "," + StringSlice(number, StringLength(number) - 3, 3);
+                // breaks when a number is greater than 999,999,999
+
 Vector MenuYFromMenuZ(Vector z): DirectionFromAngles(HorizontalAngleFromDirection(z), VerticalAngleFromDirection(z) - 90);
 Any RenderPosOf(Number x = 0, Number y = 0): 
     Update(EyePos(local) + 100 * (x * Cross(Facing(local), MenuYFromMenuZ(Facing(local))) + y * MenuYFromMenuZ(Facing(local)) + 3 * Facing(local)));
@@ -320,7 +328,7 @@ rule: "create timeline text"
     // current frame
     CreateInWorldText(
         VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
-        Header:         <"<0>", local.currFrame>,
+        Header:         <"<0>", PrettyNumber(local.currFrame)>,
         Position:       RenderPosOf(-1.65, local.timelineCtrlYPos[ButtonTextID.CurrFrame]), 
         Scale:          1,
         TextColor:      Color.White,
