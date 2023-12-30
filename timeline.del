@@ -71,16 +71,22 @@ Event.OnPlayerJoin
     rightHandlePos = 2.60;
 }
 
+Number totalFrames: 225000; // TODO: change this to the total amount of frames in a recording when i finally get around to that 
+Number delta: 0.016; // length of each "frame" as wait durations. must be a multiple of 0.016 TODO: make this player adjustable as a framerate option: 1/delta
 Number FrameToSeconds(Number f): f * 0.016;
 
-String FormattedFrameToSec(Number f): StringReplace(<"<0>:<1><2>", 
-                                          Floor(FrameToSeconds(f) / 60) % 60, 
-                                          Floor(FrameToSeconds(f) % 60) < 10 
-                                              ? "0" 
-                                              : "", 
-                                          f % 62.5 != 0 
-                                              ? FrameToSeconds(f) % 60
-                                              : <String>(FrameToSeconds(f) % 60) + ":00">, ".", ":"); // this is stupid
+String FormattedFrameToSec(Number f): <"<0><1><2><3>", 
+                                            FrameToSeconds(f) >= 3600
+                                                ? <"<0>:", Floor(FrameToSeconds(f) / 3600)>
+                                                : "",
+                                            FrameToSeconds(f) >= 3600 && FrameToSeconds(f) % 3600 / 60 < 10 // minutes
+                                                ? <"0<0>:", Floor(FrameToSeconds(f) / 60) % 60>
+                                                : <"<0>:", Floor(FrameToSeconds(f) / 60) % 60>,
+                                            Floor(FrameToSeconds(f) % 60) < 10  // seconds
+                                                ? "0" 
+                                                : "", 
+                                            FrameToSeconds(f) % 60 + 0.0001>; // miliseconds, add small offset so overwatch doesnt hide decimal. this is still stupid
+
 
 rule: "create timeline text"
 {
@@ -649,7 +655,7 @@ if (currFrame < maxFrame)
     LoopIfConditionIsTrue();
 }
 
-playervar Number frameMult; // how many frames to jump per tick during rewind/fast forward TODO: make this player adjustable
+playervar Number frameMult; // how many frames to jump per tick during rewind/fast forward
 rule: "rewind loop"
 Event.OngoingPlayer
 if (rewind)
@@ -706,8 +712,6 @@ playervar Number leftHandlePos;
 playervar Number leftHandleNormal;
 playervar Number rightHandlePos;
 playervar Number rightHandleNormal;
-Number totalFrames: 5625; // TODO: change this to the total amount of frames in a recording when i finally get around to that 
-Number delta: 0.016; // length of each "frame" as wait durations. must be a multiple of 0.016 TODO: make this player adjustable as a framerate option: 1/delta
 rule: "drag seeker"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
