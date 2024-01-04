@@ -728,14 +728,12 @@ if (isDraggingSeeker)
     LoopIfConditionIsTrue();
 }
 
-Number handleSpacingOffset: 0.0925; // spacer to prevent the left and right handles from going over each other, 0.0925 is 100 frames
-
 rule: "drag lhandle"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
 if (isDraggingLHandle)
 {
-    leftHandlePos = Clamp(CursorX(player), -2.60, rightHandlePos - handleSpacingOffset);
+    leftHandlePos = Clamp(CursorX(player), -2.60, rightHandlePos);
     leftHandleNormal = NormalizedRange(leftHandlePos, -2.60, 2.60);
     minFrame = Floor(totalFrames * leftHandleNormal);
 
@@ -754,7 +752,7 @@ Event.OngoingPlayer
 if (IsPrimaryHeld())
 if (isDraggingRHandle)
 {
-    rightHandlePos = Clamp(CursorX(player), leftHandlePos + handleSpacingOffset, 2.60);
+    rightHandlePos = Clamp(CursorX(player), leftHandlePos, 2.60);
     rightHandleNormal = NormalizedRange(rightHandlePos, -2.60, 2.60);
     maxFrame = Floor(totalFrames * rightHandleNormal);
 
@@ -771,7 +769,8 @@ if (isDraggingRHandle)
 rule: "in lhandle bounds"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (IsInRange(X, leftHandlePos - 0.0375, leftHandlePos + 0.0375))
+if (IsInRange(X, leftHandlePos - 0.0375, leftHandlePos + 0.0375)
+    && (rightHandlePos - leftHandlePos) > 0.05) // dont grab left handle if right handle is overlapping
 if (IsInRange(Y, -0.80, -0.725))
 if (!isDragging)
 {
@@ -787,7 +786,8 @@ if (!isDragging)
 rule: "in rhandle bounds"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (IsInRange(X, rightHandlePos - 0.0375, rightHandlePos + 0.0375))
+if (IsInRange(X, rightHandlePos - 0.0375, rightHandlePos + 0.0375) 
+    || (rightHandlePos - leftHandlePos) < 0.05) // grab right handle if its overlapping the left handle
 if (IsInRange(Y, -0.80, -0.725))
 if (!isDragging)
 {
