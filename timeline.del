@@ -65,23 +65,26 @@ enum ButtonTextID  // timeline ui is using text mostly, so its a text id
 rule: "init player"
 Event.OnPlayerJoin
 {
+    totalFrames = 225000;  // TODO: change this to the total amount of frames in a recording when i finally get around to that 
     minFrame = 0;
     maxFrame = totalFrames;
     leftHandlePos = -2.60;
     rightHandlePos = 2.60;
 }
 
-Number totalFrames: 225000; // TODO: change this to the total amount of frames in a recording when i finally get around to that 
+playervar Number totalFrames; // TODO: change this to the total amount of frames in a recording when i finally get around to that 
 Number delta: 0.016; // length of each "frame" as wait durations. must be a multiple of 0.016 TODO: make this player adjustable as a framerate option: 1/delta
-Number FrameToSeconds(Number f): f * 0.016;
+Number FrameToSeconds(Number f): f * delta;
 
 String FormattedFrameToSec(Number f): <"<0><1><2><3>", 
-                                            FrameToSeconds(f) >= 3600
+                                            local.totalFrames >= 225000 // hours
                                                 ? <"<0>:", Floor(FrameToSeconds(f) / 3600)>
+                                                : "", 
+                                            local.totalFrames >= 3750 // minutes
+                                                ? ((FrameToSeconds(f) >= 3600 || local.totalFrames >= 225000) && FrameToSeconds(f) % 3600 / 60 < 10)
+                                                        ? <"0<0>:", Floor(FrameToSeconds(f) / 60) % 60>
+                                                        : <"<0>:", Floor(FrameToSeconds(f) / 60) % 60>
                                                 : "",
-                                            FrameToSeconds(f) >= 3600 && FrameToSeconds(f) % 3600 / 60 < 10 // minutes
-                                                ? <"0<0>:", Floor(FrameToSeconds(f) / 60) % 60>
-                                                : <"<0>:", Floor(FrameToSeconds(f) / 60) % 60>,
                                             Floor(FrameToSeconds(f) % 60) < 10  // seconds
                                                 ? "0" 
                                                 : "", 
@@ -359,7 +362,7 @@ rule: "create timeline text"
     CreateProgressBarInWorldText(
         VisibleTo:        local.tl || local.closeAnim ? local : null, 
         Text:             FormattedFrameToSec(local.currFrame),
-        Value:            (local.currFrame / totalFrames) * 100,
+        Value:            (local.currFrame / local.totalFrames) * 100,
         Position:         RenderPosOf(0, local.timelineCtrlYPos[ButtonTextID.ProgressBar]), 
         Scale:            3.2,
         ProgressBarColor: Color.White,
@@ -369,7 +372,7 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.tl || local.closeAnim ? local : null,
         Header:         "┃",
-        Position:       RenderPosOf(((local.currFrame / totalFrames) * 5.2) - 2.6, local.timelineCtrlYPos[ButtonTextID.Seeker]), // convert 0-1 value to -2.6-2.6 for positioning
+        Position:       RenderPosOf(((local.currFrame / local.totalFrames) * 5.2) - 2.6, local.timelineCtrlYPos[ButtonTextID.Seeker]), // convert 0-1 value to -2.6-2.6 for positioning
         Scale:          2.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
