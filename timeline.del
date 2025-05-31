@@ -182,7 +182,7 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
         VisibleTo:      local.tl && local.selectedButton == Ctrl.Stop ? local : null, 
-        Header:         "Stop",
+        Header:         <"Stop [Crouch + <0>]", BindString(Button.Jump)>,
         Position:       RenderPosOf(-2.250, tooltipY), 
         Scale:          1,
         TextColor:      Color.White,
@@ -672,8 +672,8 @@ if (currFrame > minFrame)
 
         if (currFrame < minFrame)
         {
-            LogToInspector("currFrame is lower than minFrame, something broke");
             currFrame = minFrame;
+            ThrowError("currFrame is lower than minFrame, something broke");
         }
     }
 
@@ -694,8 +694,8 @@ if (currFrame < maxFrame)
 
         if (currFrame > maxFrame)
         {
-            LogToInspector("currFrame is higher than maxFrame, something broke");
             currFrame = maxFrame;
+            ThrowError("currFrame is greater than maxFrame, something broke");
         }
     }
 
@@ -863,7 +863,19 @@ if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
         if (!playback)
             async! ControlSelectionHandler(Ctrl.Play);
         else 
-            async! ControlSelectionHandler(Ctrl.Pause);
+        {
+            // Ctrl + Space
+            if (IsCrouchHeld())
+            {
+                async! ControlSelectionHandler(Ctrl.Stop);
+                Abort();
+            }
+            else 
+            {
+                async! ControlSelectionHandler(Ctrl.Pause);
+            }
+        }
+
     }
     else if (IsUltimateHeld())
     {
