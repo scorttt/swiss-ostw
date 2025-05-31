@@ -9,6 +9,7 @@ A work in progress Overwatch workshop mode built on [OSTW](https://github.com/It
         - [x] Fast Forward/Rewind
         - [x] Jump to Start/End
         - [x] Scrub frame by frame
+        - [x] Keybinds
     - [x] Trimming
     - [x] Scrubbing
 - [ ] Recording **(NOT IMPLEMENTED)**
