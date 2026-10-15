@@ -111,8 +111,10 @@ Color RecordingPulse():
     CustomColor(Oscillate(500, 180, 255), 0, 0, 255);
 Color DisabledButtonColor(): CustomColor(140, 140, 140, 255);
 
-Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), HorizontalAngleFromDirection(p.facing));
-Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), VerticalAngleFromDirection(p.facing));
+playervar Number facingX;
+playervar Number facingY;
+Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), p.facingX);
+Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), p.facingY);
 
 String PrettyNumber(Number | String number):
         StringLength(number) <= 3
@@ -122,9 +124,11 @@ String PrettyNumber(Number | String number):
                 : StringSlice(number, 0, StringLength(number) - 6) + "," + StringSlice(number, StringLength(number) - 6, 3) + "," + StringSlice(number, StringLength(number) - 3, 3);
                 // supports only 9 digits, no one will ever need more than that since at worst that would be over half a year of recording (999,999,999 * 0.016 = 185 days)
 
-Vector MenuYFromMenuZ(Vector z): DirectionFromAngles(HorizontalAngleFromDirection(z), VerticalAngleFromDirection(z) - 90);
 Any RenderPosOf(Number x = 0, Number y = 0):
-    Update(EyePos(local) + 100 * (x * Cross(Facing(local), MenuYFromMenuZ(Facing(local))) + y * MenuYFromMenuZ(Facing(local)) + 3 * Facing(local)));
+    Update(EyePos(local) + 100 * (
+        x * WorldVectorOf(Right(), local, LocalVector.Rotation)
+      + y * Cross(Facing(local), WorldVectorOf(Left(), local, LocalVector.Rotation))
+      + 3 * Facing(local)));
 
 Number FrameToSeconds(Number f): f * delta;
 
@@ -158,24 +162,32 @@ Any CtrlPos(Number | Ctrl id, Number xOffset = 0, Number yOffset = 0): RenderPos
 Any UiPos(Number x, Number | Ui id, Number yOffset = 0): RenderPosOf(x, local.timelineUiYPos[id] + yOffset);
 Any TipPos(Number | Ctrl id): RenderPosOf(CTRL_X[id], TOOLTIP_Y);
 Any CursorState(Player p = local): IsDragging(p) ? Cursor.Drag : p.hoverFlagIndex != -1 ? Cursor.FlagHover : Cursor.Default;
+Boolean CtrlEnabled(Number | Ctrl c): local.ctrlEnabled[c];
+playervar Boolean[] ctrlEnabled;
+Boolean IsCtrlEnabled(Number | Ctrl c) playervar "TL Sub : Ctrl Enabled"
+{
+    // always enabled
+    if (c == Ctrl.Record)
+        return true;
+    if (c == Ctrl.AddFlag)
+        return flags.Contains(currFrame) || flags.Length < MAX_FLAGS;
 
-// (llm written) whether a button is usable, used for both color and hit testing
-Boolean CtrlEnabled(Number | Ctrl c, Player p = local):
-    c == Ctrl.Record
-        ? true
-        : c == Ctrl.AddFlag
-            ? p.flags.Contains(p.currFrame) || p.flags.Length < MAX_FLAGS
-            : p.recording
-                ? false
-                : c == Ctrl.Play
-                    ? !p.playbackActive && p.currFrame != p.trimEnd
-                    : c == Ctrl.Pause || c == Ctrl.Stop
-                        ? p.playbackActive
-                        : c == Ctrl.Rewind || c == Ctrl.ToStart || c == Ctrl.PrevFrame
-                            ? p.currFrame != p.trimStart
-                            : c == Ctrl.Forward || c == Ctrl.ToEnd || c == Ctrl.NextFrame
-                                ? p.currFrame != p.trimEnd
-                                : true;
+    // disable all when recording
+    if (recording)
+        return false;
+
+    // disabled
+    if (c == Ctrl.Play)
+        return !playbackActive && currFrame != trimEnd;
+    if (c == Ctrl.Pause || c == Ctrl.Stop)
+        return playbackActive;
+    if (c == Ctrl.Rewind || c == Ctrl.ToStart || c == Ctrl.PrevFrame)
+        return currFrame != trimStart;
+    if (c == Ctrl.Forward || c == Ctrl.ToEnd || c == Ctrl.NextFrame)
+        return currFrame != trimEnd;
+
+    return true;
+}
 
 // button text color, also used for some timeline actions (e.g. rewinding/fast forwarding)
 Color ButtonColor(Number | Ctrl id, Boolean active = false):
@@ -189,7 +201,7 @@ globalvar String txCharacter;
 String TXString(String value): "{0}TX {1}>".Format([txCharacter, value]);
 rule: "init unsanitized text"
 {
-    # unsanitized string stuff for the menu cursor, might break in future updates
+    // unsanitized string stuff for the menu cursor, might break in future updates
     CreateDummyBot(<Hero>AllHeroes(), <Team>host, false, null, null);
     StartForcingDummyBotName(LastCreatedEntity(), "______________________________________________________________________________________________________________________________〼");
     txCharacter = StringSplit(FirstOf(LastCreatedEntity()), EmptyArray());
@@ -200,7 +212,7 @@ rule: "init unsanitized text"
 
 void SetRecordingLength(Number frames) playervar "TL Sub : Set Recording Length"
 {
-    // called whenever a recording's length is known (init, recording stopped, track switched)
+    // called whenever a recording's length is known (init, recording stopped)
     totalFrames = frames;
     trimStart = 0;
     trimEnd = frames;
@@ -212,6 +224,8 @@ rule: "init player"
 Event.OnPlayerJoin
 {
     flags = [];
+    ctrlEnabled = [];
+    hoverFlagIndex = -1;
     currFrame = 0;
     SetRecordingLength(6000); 
     // TODO: replace with recording length once recording is implemented
@@ -277,6 +291,7 @@ rule: "init timeline tables"
 
 rule: "create timeline text"
 {
+    // todo: hidden texts still reeval, performance issues, need to rewrite tooltips to create only one text instead of for each button since only one tooltip is visible at a time
     // play
     CreateInWorldText(
         VisibleTo:      TimelineVisible() && !local.playbackActive ? local : null,
@@ -302,17 +317,8 @@ rule: "create timeline text"
     // pause (two bars)
     CreateInWorldText(
         VisibleTo:      TimelineVisible() && local.playbackActive ? local : null,
-        Header:         "┃",
-        Position:       CtrlPos(Ctrl.Pause, -0.020),
-        Scale:          1.5,
-        TextColor:      ButtonColor(Ctrl.Pause),
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-        Clipping:       Clipping.DoNotClip,
-        Spectators:     Spectators.VisibleNever);
-    CreateInWorldText(
-        VisibleTo:      TimelineVisible() && local.playbackActive ? local : null,
-        Header:         "┃",
-        Position:       CtrlPos(Ctrl.Pause, 0.020),
+        Header:         "I I", // font makes it display as 2 straight vertical lines
+        Position:       CtrlPos(Ctrl.Pause, 0.007, -0.0075),
         Scale:          1.5,
         TextColor:      ButtonColor(Ctrl.Pause),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -347,7 +353,7 @@ rule: "create timeline text"
         Position:       CtrlPos(Ctrl.Record, 0, -0.0050),
         Scale:          2,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     // text recording indicator outside tl 
@@ -594,7 +600,7 @@ rule: "create timeline text"
         Position:       UiPos(FrameToTrackX(local.currFrame), Ui.Seeker),
         Scale:          2.75,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -605,7 +611,7 @@ rule: "create timeline text"
         Position:       UiPos(TrimStartX() - HANDLE_X_OFFSET, Ui.Handles),
         Scale:          2,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     // left handle min timestamp
@@ -615,7 +621,7 @@ rule: "create timeline text"
         Position:       UiPos(TrimStartX() - HANDLE_X_OFFSET, Ui.HandleTime),
         Scale:          0.65,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -626,7 +632,7 @@ rule: "create timeline text"
         Position:       UiPos(TrimEndX() - HANDLE_X_OFFSET, Ui.Handles),
         Scale:          2,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     // right handle max timestamp
@@ -636,7 +642,7 @@ rule: "create timeline text"
         Position:       UiPos(TrimEndX() - HANDLE_X_OFFSET, Ui.HandleTime),
         Scale:          0.65,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -658,7 +664,7 @@ rule: "create timeline text"
         Position:       RenderPosOf(
                             CursorX() + [ 0.07,  0,    0][CursorState()],
                             CursorY() + [-0.14, -0.07, -0.07][CursorState()]),
-        TextColor:      [Color.White, Color.White, Color.White][CursorState()],
+        TextColor:      Color.White,
         Scale:          2,
         Clipping:       Clipping.DoNotClip,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor);
@@ -739,18 +745,21 @@ if (timelineOpen)
     Number cY = CursorY(player);
     Number hit = -1;
 
-    for (Number i = 0; i < CTRL_HIT_X_MIN.Length; i++)
+    for (Number i = 0; i < CTRL_X.Length; i++)
     {
-        if (IsInRange(cX, CTRL_HIT_X_MIN[i], CTRL_HIT_X_MAX[i])
-            && IsInRange(cY, CTRL_HIT_Y_MIN[i], CTRL_HIT_Y_MAX[i])
-            && CtrlEnabled(i, player))
-        {
+        Boolean enabled = IsCtrlEnabled(i);
+        if (ctrlEnabled[i] != enabled)
+            ctrlEnabled[i] = enabled;
+
+        if (hit == -1
+            && enabled
+            && IsInRange(cX, CTRL_HIT_X_MIN[i], CTRL_HIT_X_MAX[i])
+            && IsInRange(cY, CTRL_HIT_Y_MIN[i], CTRL_HIT_Y_MAX[i]))
             hit = i;
-            break;
-        }
     }
 
-    hoveredCtrl = hit;
+    if (hoveredCtrl != hit)
+        hoveredCtrl = hit;
 
     MinWait();
     LoopIfConditionIsTrue();
@@ -923,8 +932,8 @@ if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
     {
         if (IsMeleeHeld() || IsSecondaryHeld())
             flags = RemoveFromArrayAtIndex(flags, hoverFlagIndex);
-        else
-            currFrame = Clamp(flags[hoverFlagIndex], trimStart, trimEnd);
+        else if (!recording)    
+               currFrame = Clamp(flags[hoverFlagIndex], trimStart, trimEnd);
     }
     else if (IsMeleeHeld())
     {
@@ -950,7 +959,10 @@ if (timelineOpen)
             }
         }
     }
-    hoverFlagIndex = found;
+
+    if (hoverFlagIndex != found)
+        hoverFlagIndex = found;
+
     MinWait();
     LoopIfConditionIsTrue();
 }
@@ -1100,6 +1112,8 @@ if (IsInteractHeld())
     if (timelineOpen)
     {
         facing = Facing();
+        facingX = HorizontalAngleFromDirection(facing);
+        facingY = VerticalAngleFromDirection(facing);
         SetAimSpeed(player, 10);
         SetMoveSpeed(player, 0);
         DisallowAllButtons();
@@ -1131,7 +1145,13 @@ if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
     {
         // Space
         if (!playbackActive)
-            async! ActivateCtrl(Ctrl.Play);
+        {
+             async! ActivateCtrl(Ctrl.Play);
+        }
+        else if (recording && timelineOpen)
+        {
+            async! ActivateCtrl(Ctrl.Record);
+        }
         else
         {
             // Ctrl + Space
@@ -1194,9 +1214,25 @@ if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
     }
 }
 
+Number SCRUB_SECONDS: 1;
+Number SCRUB_FRAMES:  Near(SCRUB_SECONDS / delta);
+rule: "scrub keybind"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!recording)
+if (!IsDragging(player))
+if (!IsAbility1Held())
+if (Abs(ThrottleX()) > 0.5)
+{
+    currFrame = Clamp(currFrame + (ThrottleX() > 0 ? -SCRUB_FRAMES : SCRUB_FRAMES), trimStart, trimEnd);
+
+    WaitIfTrue(0.125);
+    LoopIfConditionIsTrue();
+}
+
 playervar Number recordBindCount;
 playervar Number lastRecordPress;
-rule: "recording keybinds"
+rule: "recording r x5 keybind"
 Event.OngoingPlayer
 if (IsReloadHeld())
 {
@@ -1244,12 +1280,12 @@ if (timelineOpen)
 if (Abs(CursorX(player)) > SCREEN_WIDTH || Abs(CursorY(player)) > SCREEN_HEIGHT)
 {
     SetFacing(Direction: DirectionFromAngles(
-        Min(Max(HorizontalAngleFromDirection(facing) - CursorX(player), 
-                HorizontalAngleFromDirection(facing) - SCREEN_WIDTH / 1.01), 
-                HorizontalAngleFromDirection(facing) + SCREEN_WIDTH / 1.01),
-        Min(Max(VerticalAngleFromDirection(facing) - CursorY(player), 
-                VerticalAngleFromDirection(facing) - SCREEN_HEIGHT / 1.01), 
-                VerticalAngleFromDirection(facing) + SCREEN_HEIGHT / 1.01)
+        Min(Max(facingX - CursorX(player), 
+                facingX - SCREEN_WIDTH / 1.01), 
+                facingX + SCREEN_WIDTH / 1.01),
+        Min(Max(facingY - CursorY(player), 
+                facingY - SCREEN_HEIGHT / 1.01), 
+                facingY + SCREEN_HEIGHT / 1.01)
     ));
 
     MinWait();

@@ -1,5 +1,5 @@
 # Swiss MVM
-An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop) to provide a slew of movie making features for Overwatch content creators
+An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop) to provide a slew of movie making features for Overwatch content creators. Whether it's frag movies, skits, or showcasing balance changes, this tool is designed to assist in the creation of all sorts of Overwatch content  
 
 ## Planned Features
 - [ ] Timeline for easy visualizations of dummy bot playback
@@ -31,6 +31,7 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
     - [ ] Recording Accuracy 
         - Record actions every x ticks, from 1-8. Higher values are more prone to movement drifting and/or movement compensation
     - [ ] Flight/Noclip
+        - [ ] Toggle to automatically disable when starting a recording
     - [ ] Aim assist
         - [ ] Strength (slider)
         - [ ] Aim at:
@@ -58,7 +59,7 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
 - Swiss isn't intended to be used in other custom games, results will vary if you merge Swiss with another custom game
 - Viewing an Overwatch replay with Swiss will not playback any Swiss camera pathing, you will need to find a different solution; there are Autohotkey scripts available to get similar results within the viewer
 - It is not possible for bots to use skins
-- Keybinds are intended to be used with default keybinds for Melee, Primary/Secondary Fire, Ability Buttons, Crouch, and Ultimate. It's not possible for keybinds to be set to an individual key or be setting agnostic
+- Keybinds are intended to be used with default keybinds for movement (WASD), Interact (F), Melee (V), Primary/Secondary Fire (LMB/RMB), Ability Buttons (LShift, E), Crouch (LCtrl), and Ultimate (Q). It's not possible for keybinds to be set to an individual key or be setting agnostic
 
 ## Compiling
 My [`macros`](https://github.com/scorttt/macros-ostw) repo must be placed in a folder named `macros-ostw` above Swiss' parent directory. The folder structure should appear as follows: 
