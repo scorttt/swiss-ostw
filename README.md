@@ -48,9 +48,9 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
 2. After export, open the Workshop Inspector by pressing Esc -> Open Workshop Inspector -> Click on the `(X)` button at the bottom of the menu and save the copied contents to a file
 
 ### Importing 
-1. Before loading into Swiss, copy the file contents of an export. 
-2. In the custom game lobby, click on `Settings -> Workshop`, then click on the orange button at the top right. Ensure that the item prefixed with `[IMPORT]` is at the top of the list! If your import is not at the top of the list, move it up by checking it with the box on the far right and use the arrows on the UI.
-3. Start the game, your custom game settings, tracks, and options should be loaded automatically
+1. Before loading into Swiss, copy the file contents of an export. Ensure that the map of the export is enabled in the custom game lobby in `Settings -> Maps`, the imported recording will give you a warning in-game if the the incorrect map is loaded 
+2. In the custom game lobby, click on `Settings -> Workshop`, then click on the orange button at the top right. Ensure that the item prefixed with `[IMPORT]` is at the top of the list! If your import is not at the top of the list, move it up by checking it with the box on the far right and use the arrows on the UI
+3. Start the game, your tracks and options should be loaded automatically
 
 ## Notes and Limitations
 - Menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and ingame language is not set to Traditional/Simplified Chinese, Japanese, Korean, Thai, or Russian
