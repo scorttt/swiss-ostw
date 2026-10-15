@@ -5,15 +5,38 @@ Event.OngoingPlayer
 if (player == host)
 {
     ServerLoadHUD(player);
-    CreateHudText(host, null, <"Pos: <0>\nFacing: <1>\nRC: <2>", PositionOf(), Facing(), RayHit(EyePos(), EyePos() + Facing() * 100, null, All())>, null, Location.Right, 0.5);
-    CreateHudText(host, null, <"(<0>, <1>)\nselectedButton: <2>\nanim: <3>\ncloseAnim: <4>\nCF: <5>, MNF: <6>, MXF: <7>\nleftHandlePos: <8>, rightHandlePos: <9>", 
-                                    CursorX(), CursorY(), 
-                                    selectedButton, 
-                                    anim, 
-                                    closeAnim, 
-                                    currFrame, 
-                                    minFrame, 
-                                    maxFrame,
-                                    leftHandlePos, 
-                                    rightHandlePos>, null, Location.Right, 0.6);
+    CreateHudText(host, null, <"Pos: <0>\nFacing: <1>\nRC: <2>", PosOf(), Facing(), RayHit(EyePos(), EyePos() + Facing() * 100, null, All())>, null, Location.Right, 0.5);
+
+    // menu / cursor
+    CreateHudText(host, null, <"Cursor: (<0>, <1>)\ncursor state: <2>\nhoveridx: <3>\nopen: <4>\nanim: <5>\nclosing: <6>",
+                                    CursorX(), CursorY(),
+                                    CursorState(player),
+                                    hoveredCtrl,
+                                    timelineOpen,
+                                    animating,
+                                    closing>, null, Location.Right, 0.6);
+
+    // frames
+    CreateHudText(host, null, <"CF: <0>\nTrim: <1> - <2>\nTF: <3>\nTrimX: <4> - <5>",
+                                    currFrame,
+                                    trimStart, trimEnd,
+                                    totalFrames,
+                                    TrimStartX(player), TrimEndX(player)>, null, Location.Right, 0.7);
+
+    // playback
+    CreateHudText(host, null, <"active: <0>\nplay: <1>\nrew: <2>\nff: <3>\nrec: <4>\nmult: x<5>",
+                                    playbackActive,
+                                    playing,
+                                    rewinding,
+                                    fastForwarding,
+                                    recording,
+                                    framesToSkip>, null, Location.Right, 0.8);
+
+    // drag / flags
+    CreateHudText(host, null, <"dragTarget: <0>\nflagCnt: <1>/<2>\nhoverFlagIdx: <3>\nhoverFlagFrame: <4>\nRecPresses: <5>",
+                                    dragTarget,
+                                    flags.Length, MAX_FLAGS,
+                                    hoverFlagIndex,
+                                    hoverFlagIndex != -1 ? flags[hoverFlagIndex] : -1,
+                                    recordBindCount>, null, Location.Right, 0.9);
 }

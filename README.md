@@ -1,8 +1,8 @@
 # Swiss MVM
-A work in progress Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop) to provide a slew of movie making features for Overwatch content creators
+An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop) to provide a slew of movie making features for Overwatch content creators
 
-## Features
-- Timeline for easy visualizations of dummy bot playback and camera pathing **(WIP)**
+## Planned Features
+- [ ] Timeline for easy visualizations of dummy bot playback
     - [x] Cursor navigation
     - [x] Controls
         - [x] Play/Pause/Stop
@@ -10,24 +10,55 @@ A work in progress Overwatch workshop mode built on [OSTW](https://github.com/It
         - [x] Jump to Start/End
         - [x] Scrub frame by frame
         - [x] Keybinds
+        - [x] Flags
+            - Similar to how osu! handles flags with their editor, flag specific frames with Melee and quickly jump around them in a recording with Shift + A/D
     - [x] Trimming
     - [x] Scrubbing
-- [ ] Recording **(NOT IMPLEMENTED)**
-    - [ ] Player recording with dummy bot playback 
-    - [ ] Camera pathing
-- Recording Options **(NOT IMPLEMENTED)**
+    - [ ] Events (deaths, kills, objectives, etc)
+- [ ] Recording
+    - [ ] Dummy bot playback of player actions
+    - [ ] Synchronous playback of multiple bots 
+    - [ ] Camera pathing with curve options
+        - Each path type has their pros and cons, and can be changed at any time
+            - [ ] Cubic B-spline
+            - [ ] Catmull-Rom
+            - [ ] Linear
+- [ ] Options
+    - [ ] Import / Export recordings
     - [ ] Timescale adjustment
-    - [ ] Add/Remove Bot Track
-    - [ ] Add/Remove Camera Track
-    - [ ] Recording update rate (62.5, 31.2, 20.8, 15.6, 10.4)
-- [ ] Player Options **(NOT IMPLEMENTED)**
-    - [ ] Noclip
+    - [ ] Perspective
+    - [ ] Damage scaling (slider)
+    - [ ] Recording Accuracy 
+        - Record actions every x ticks, from 1-8. Higher values are more prone to movement drifting and/or movement compensation
+    - [ ] Flight/Noclip
     - [ ] Aim assist
+        - [ ] Strength (slider)
+        - [ ] Aim at:
+            - [ ] Position (feet/legs)
+            - [ ] Center
+            - [ ] Eye Position
+                - Note: eye position does not always line up with a model's head
+    - [ ] End game 
+        - Overwatch replays can take up to 5 minutes to appear
+
+## How do I import / export my recordings?
+### Exporting
+0. Before exporting, ensure that `Enable Workshop Inspector` and `Enable Workshop Inspector Log File` settings are turned **ON** in `Gameplay -> General` 
+1. Open the options menu in Swiss, click on the "Export to Inspector" button. Exports are not automatic, and must be done manually.
+2. After export, open the Workshop Inspector by pressing Esc -> Open Workshop Inspector -> Click on the `(X)` button at the bottom of the menu and save the copied contents to a file
+
+### Importing 
+1. Before loading into Swiss, copy the file contents of an export. 
+2. In the custom game lobby, click on `Settings -> Workshop`, then click on the orange button at the top right. Ensure that the item prefixed with `[IMPORT]` is at the top of the list! If your import is not at the top of the list, move it up by checking it with the box on the far right and use the arrows on the UI.
+3. Start the game, your custom game settings, tracks, and options should be loaded automatically
 
 ## Notes and Limitations
-- Cursor controlled menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and game language is not set to Traditional/Simplified Chinese, Japanese, or Korean
-- The "framerate" is about 62.5 FPS, with each "frame" lasting 0.016 seconds (1s/0.016s = 62.5)
-- Server load is (probably going to be) high while playback and recording is active, because of this it is recommended to only be used by one player. It will work with multiple players; however server crashes are likely
+- Menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and ingame language is not set to Traditional/Simplified Chinese, Japanese, Korean, Thai, or Russian
+- Intended for use with only one human player, using multiple human players in a lobby is untested and may not work correctly
+- Swiss isn't intended to be used in other custom games, results will vary if you merge Swiss with another custom game
+- Viewing an Overwatch replay with Swiss will not playback any Swiss camera pathing, you will need to find a different solution; there are Autohotkey scripts available to get similar results within the viewer
+- It is not possible for bots to use skins
+- Keybinds are intended to be used with default keybinds for Melee, Primary/Secondary Fire, Ability Buttons, Crouch, and Ultimate. It's not possible for keybinds to be set to an individual key or be setting agnostic
 
 ## Compiling
 My [`macros`](https://github.com/scorttt/macros-ostw) repo must be placed in a folder named `macros-ostw` above Swiss' parent directory. The folder structure should appear as follows: 

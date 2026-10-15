@@ -3,7 +3,7 @@
     "Allow Players Who Are In Queue": true,
     "Map Rotation": "After A Game",
     "Max Team 1 Players": 1,
-    "Max Team 2 Players": 1,
+    "Max Team 2 Players": 0,
     "Max Spectators": 2,
     "Return To Lobby": "Never"
   },

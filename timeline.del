@@ -1,31 +1,63 @@
 import "main.del";
-playervar Vector facing; // cursor math facing vector to compare
-playervar Boolean tl; // if timeline is open
-playervar Number selectedButton; // selected control item
+Number delta: 0.016; // length of each "frame" as wait durations. must be a multiple of 0.016 TODO: make this player adjustable as a framerate option: 1/delta
 
-globalvar Number[] TIMELINE_CTRL_Y_POS;
+Number TRACK_HALF:  2.60; // timeline track spans -TRACK_HALF to TRACK_HALF on the menu x axis
+Number TRACK_WIDTH: 5.2;
+Number TOOLTIP_Y:   -1.25;
+
+Number BUTTON_ROW_Y_MIN: -1.15;
+Number BUTTON_ROW_Y_MAX: -1.05;
+
+Number HANDLE_Y_MIN:     -0.80;
+Number HANDLE_Y_MAX:     -0.725;
+Number HANDLE_HALF_W:    0.0375;
+Number HANDLE_MIN_GAP:   0.05;
+Number HANDLE_X_OFFSET:  0.003;
+
+Number SEEKER_Y_MIN: -0.975;
+Number SEEKER_Y_MAX: -0.825;
+
+Number SCREEN_WIDTH:  3.65;
+Number SCREEN_HEIGHT: 2.125;
+
+Number ANIM_HIDDEN_Y: -2.9;
+Number ANIM_SPEED:   0.15;
+
+globalvar Number[] CTRL_X;                  // text x position
+globalvar Number[] TIMELINE_CTRL_Y_POS;     // text y position when the menu is open
+globalvar Number[] CTRL_HIT_X_MIN;          // hitbox
+globalvar Number[] CTRL_HIT_X_MAX;
+globalvar Number[] CTRL_HIT_Y_MIN;
+globalvar Number[] CTRL_HIT_Y_MAX;
+
+globalvar Number[] TIMELINE_UI_Y_POS;
+
+playervar Vector facing;            // cursor math facing vector to compare
+playervar Boolean timelineOpen;
+playervar Number hoveredCtrl;       // hovered control item (Ctrl)
 playervar Number[] timelineCtrlYPos;
+playervar Number[] timelineUiYPos;
 
+playervar Boolean animating;
+playervar Boolean closing;
 
-Color SelectedPulse(): 
-    CustomColor(Oscillate(500, 0, 136), Oscillate(500, 153, 219), 255, 255);
-Color DisabledButtonColor(): CustomColor(140, 140, 140, 255);
+playervar Boolean playbackActive;   // any form of playback bool
+playervar Boolean playing;          // normal playback bool
+playervar Boolean rewinding;        // rewind bool
+playervar Boolean fastForwarding;   // fast forward bool
+playervar Boolean recording;        // recording bool
+playervar Number framesToSkip;      // how many frames to skip per tick during rewind/fast forward
 
-Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), HorizontalAngleFromDirection(p.facing));
-Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), VerticalAngleFromDirection(p.facing));
+playervar Number dragTarget;
 
-String PrettyNumber(Number | String number): 
-        StringLength(number) <= 3
-            ? number
-            : StringLength(number) <= 6
-                ? StringSlice(number, 0, StringLength(number) - 3) + "," + StringSlice(number, StringLength(number) - 3, 3)
-                : StringSlice(number, 0, StringLength(number) - 6) + "," + StringSlice(number, StringLength(number) - 6, 3) + "," + StringSlice(number, StringLength(number) - 3, 3);
-                // breaks when a number is greater than 999,999,999
+playervar Number totalFrames;       // recording length, only set by SetRecordingLength
+playervar Number trimStart;         // trimmed playback start frame
+playervar Number trimEnd;           // trimmed playback end frame
+playervar Number currFrame;
+playervar Number[] flags;
+playervar Number hoverFlagIndex;
 
-Vector MenuYFromMenuZ(Vector z): DirectionFromAngles(HorizontalAngleFromDirection(z), VerticalAngleFromDirection(z) - 90);
-Any RenderPosOf(Number x = 0, Number y = 0): 
-    Update(EyePos(local) + 100 * (x * Cross(Facing(local), MenuYFromMenuZ(Facing(local))) + y * MenuYFromMenuZ(Facing(local)) + 3 * Facing(local)));
-
+// clickable items, fills CTRL_
 enum Ctrl
 {
     Invalid = -1,
@@ -38,152 +70,323 @@ enum Ctrl
     ToEnd = 6,
     PrevFrame = 7,
     NextFrame = 8,
-    Options = 9
+    Options = 9,
+    Record = 10,
+    Track = 11,
+    AddFlag = 12
 }
 
-enum ButtonTextID  // timeline ui is using text mostly, so its a text id
+// non-clickable items, fills TIMELINE_UI_Y_POS
+enum Ui
 {
-    Invalid = -1,
-    Play = 0,
-    Pause = 1,
-    Stop = 2,
-    Rewind = 3, 
-    Forward = 4,
-    ToStart = 5,
-    ToEnd = 6, 
-    PrevFrame = 7,
-    NextFrame = 8,
-    CurrFrame = 9,
-    Options = 10,
-    ProgressBar = 11,
-    Seeker = 12,
-    Handles = 13,
-    HandleTime = 14,
-    FrameMult = 15
+    CurrFrame,
+    ProgressBar,
+    Seeker,
+    Handles,
+    HandleTime,
+    FrameMult,
+    Flags,
+    TimeElapsed,
+    FlagCount
+}
+
+enum Drag
+{
+    None,
+    Seeker,
+    LHandle,
+    RHandle
+}
+
+enum Cursor 
+{ 
+    Default, 
+    Drag,
+    FlagHover 
+}
+
+Color HoverPulse():
+    CustomColor(Oscillate(500, 0, 136), Oscillate(500, 153, 219), 255, 255);
+Color RecordingPulse():
+    CustomColor(Oscillate(500, 180, 255), 0, 0, 255);
+Color DisabledButtonColor(): CustomColor(140, 140, 140, 255);
+
+Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), HorizontalAngleFromDirection(p.facing));
+Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), VerticalAngleFromDirection(p.facing));
+
+String PrettyNumber(Number | String number):
+        StringLength(number) <= 3
+            ? number
+            : StringLength(number) <= 6
+                ? StringSlice(number, 0, StringLength(number) - 3) + "," + StringSlice(number, StringLength(number) - 3, 3)
+                : StringSlice(number, 0, StringLength(number) - 6) + "," + StringSlice(number, StringLength(number) - 6, 3) + "," + StringSlice(number, StringLength(number) - 3, 3);
+                // supports only 9 digits, no one will ever need more than that since at worst that would be over half a year of recording (999,999,999 * 0.016 = 185 days)
+
+Vector MenuYFromMenuZ(Vector z): DirectionFromAngles(HorizontalAngleFromDirection(z), VerticalAngleFromDirection(z) - 90);
+Any RenderPosOf(Number x = 0, Number y = 0):
+    Update(EyePos(local) + 100 * (x * Cross(Facing(local), MenuYFromMenuZ(Facing(local))) + y * MenuYFromMenuZ(Facing(local)) + 3 * Facing(local)));
+
+Number FrameToSeconds(Number f): f * delta;
+
+Number FRAMES_PER_MINUTE: 3750;
+Number FRAMES_PER_HOUR: 225000;
+String FormattedFrameToSec(Number f): <"<0><1><2><3>",
+                                            local.totalFrames >= FRAMES_PER_HOUR // hours
+                                                ? <"<0>:", Floor(FrameToSeconds(f) / 3600)>
+                                                : "",
+                                            local.totalFrames >= FRAMES_PER_MINUTE // minutes
+                                                ? ((FrameToSeconds(f) >= 3600 || local.totalFrames >= FRAMES_PER_HOUR) && FrameToSeconds(f) % 3600 / 60 < 10)
+                                                        ? <"0<0>:", Floor(FrameToSeconds(f) / 60) % 60>
+                                                        : <"<0>:", Floor(FrameToSeconds(f) / 60) % 60>
+                                                : "",
+                                            Floor(FrameToSeconds(f) % 60) < 10  // seconds
+                                                ? "0"
+                                                : "",
+                                            FrameToSeconds(f) % 60 + 0.0001>; // miliseconds, add small offset so overwatch doesnt hide decimal. this is stupid
+
+Number ThrottleX(Player p = player): ThrottleOf(p).X;
+Boolean TimelineVisible(): local.timelineOpen || local.closing;
+Boolean IsHovered(Number | Ctrl id): local.hoveredCtrl == id;
+Boolean IsDragging(Player p = local): p.dragTarget != Drag.None;
+Number FrameToFraction(Number f, Player p = local): f / p.totalFrames;
+Number FrameToTrackX(Number f, Player p = local):   FrameToFraction(f, p) * TRACK_WIDTH - TRACK_HALF;
+Number TrackXToFrame(Number x, Player p = local):   Floor(p.totalFrames * NormalizedRange(Clamp(x, -TRACK_HALF, TRACK_HALF), -TRACK_HALF, TRACK_HALF));
+Number TrimStartX(Player p = local):                FrameToTrackX(p.trimStart, p);
+Number TrimEndX(Player p = local):                  FrameToTrackX(p.trimEnd, p);
+
+Any CtrlPos(Number | Ctrl id, Number xOffset = 0, Number yOffset = 0): RenderPosOf(CTRL_X[id] + xOffset, local.timelineCtrlYPos[id] + yOffset);
+Any UiPos(Number x, Number | Ui id, Number yOffset = 0): RenderPosOf(x, local.timelineUiYPos[id] + yOffset);
+Any TipPos(Number | Ctrl id): RenderPosOf(CTRL_X[id], TOOLTIP_Y);
+Any CursorState(Player p = local): IsDragging(p) ? Cursor.Drag : p.hoverFlagIndex != -1 ? Cursor.FlagHover : Cursor.Default;
+
+// (llm written) whether a button is usable, used for both color and hit testing
+Boolean CtrlEnabled(Number | Ctrl c, Player p = local):
+    c == Ctrl.Record
+        ? true
+        : c == Ctrl.AddFlag
+            ? p.flags.Contains(p.currFrame) || p.flags.Length < MAX_FLAGS
+            : p.recording
+                ? false
+                : c == Ctrl.Play
+                    ? !p.playbackActive && p.currFrame != p.trimEnd
+                    : c == Ctrl.Pause || c == Ctrl.Stop
+                        ? p.playbackActive
+                        : c == Ctrl.Rewind || c == Ctrl.ToStart || c == Ctrl.PrevFrame
+                            ? p.currFrame != p.trimStart
+                            : c == Ctrl.Forward || c == Ctrl.ToEnd || c == Ctrl.NextFrame
+                                ? p.currFrame != p.trimEnd
+                                : true;
+
+// button text color, also used for some timeline actions (e.g. rewinding/fast forwarding)
+Color ButtonColor(Number | Ctrl id, Boolean active = false):
+    IsHovered(id) || active
+        ? HoverPulse()
+        : CtrlEnabled(id)
+            ? Color.White
+            : DisabledButtonColor();
+
+globalvar String txCharacter;
+String TXString(String value): "{0}TX {1}>".Format([txCharacter, value]);
+rule: "init unsanitized text"
+{
+    # unsanitized string stuff for the menu cursor, might break in future updates
+    CreateDummyBot(<Hero>AllHeroes(), <Team>host, false, null, null);
+    StartForcingDummyBotName(LastCreatedEntity(), "______________________________________________________________________________________________________________________________〼");
+    txCharacter = StringSplit(FirstOf(LastCreatedEntity()), EmptyArray());
+    StartForcingDummyBotName(LastCreatedEntity(), "______________________________________________________________________________________________________________________________ࡀ");
+    txCharacter = StringSlice(StringReplace("______________________________________________________________________________________________________________________________〼", txCharacter, FirstOf(LastCreatedEntity())), 126, true);
+    DestroyAllDummyBots();
+}
+
+void SetRecordingLength(Number frames) playervar "TL Sub : Set Recording Length"
+{
+    // called whenever a recording's length is known (init, recording stopped, track switched)
+    totalFrames = frames;
+    trimStart = 0;
+    trimEnd = frames;
+    currFrame = Clamp(currFrame, 0, frames);
+    flags = flags.Filter(f => f <= frames);
 }
 
 rule: "init player"
 Event.OnPlayerJoin
 {
-    totalFrames = 225000;  // TODO: change this to the total amount of frames in a recording when i finally get around to that 
-    minFrame = 0;
-    maxFrame = totalFrames;
-    leftHandlePos = -2.60;
-    rightHandlePos = 2.60;
+    flags = [];
+    currFrame = 0;
+    SetRecordingLength(6000); 
+    // TODO: replace with recording length once recording is implemented
+    // each player spawns with 0 length, timeline scrubbing is unusable until a length is set
 }
 
-playervar Number totalFrames; // TODO: change this to the total amount of frames in a recording when i finally get around to that 
-Number delta: 0.016; // length of each "frame" as wait durations. must be a multiple of 0.016 TODO: make this player adjustable as a framerate option: 1/delta
-Number FrameToSeconds(Number f): f * delta;
+// registers a clickable button
+void UIButton(Number | Ctrl id, Number x, Number y, Number hitSize, Number hitYMin = BUTTON_ROW_Y_MIN, Number hitYMax = BUTTON_ROW_Y_MAX)
+{
+    CTRL_X[id] = x;
+    TIMELINE_CTRL_Y_POS[id] = y;
+    CTRL_HIT_X_MIN[id] = x - hitSize / 2;
+    CTRL_HIT_X_MAX[id] = x + hitSize / 2;
+    CTRL_HIT_Y_MIN[id] = hitYMin;
+    CTRL_HIT_Y_MAX[id] = hitYMax;
+}
 
-String FormattedFrameToSec(Number f): <"<0><1><2><3>", 
-                                            local.totalFrames >= 225000 // hours
-                                                ? <"<0>:", Floor(FrameToSeconds(f) / 3600)>
-                                                : "", 
-                                            local.totalFrames >= 3750 // minutes
-                                                ? ((FrameToSeconds(f) >= 3600 || local.totalFrames >= 225000) && FrameToSeconds(f) % 3600 / 60 < 10)
-                                                        ? <"0<0>:", Floor(FrameToSeconds(f) / 60) % 60>
-                                                        : <"<0>:", Floor(FrameToSeconds(f) / 60) % 60>
-                                                : "",
-                                            Floor(FrameToSeconds(f) % 60) < 10  // seconds
-                                                ? "0" 
-                                                : "", 
-                                            FrameToSeconds(f) % 60 + 0.0001>; // miliseconds, add small offset so overwatch doesnt hide decimal. this is still stupid
+rule: "init timeline tables"
+{
+    // sorted by id order
+    // UIButton(id,          x,      y,      hitSize [hitYMin, hitYMax])
+    UIButton(Ctrl.Play,      -2.380, -1.150, 0.125);
+    UIButton(Ctrl.Pause,     -2.385, -1.150, 0.125);
+    UIButton(Ctrl.Stop,      -2.250, -1.150, 0.125);
+    UIButton(Ctrl.Rewind,    -2.125, -1.150, 0.125);
+    UIButton(Ctrl.Forward,   -2.000, -1.150, 0.100);
+    UIButton(Ctrl.ToStart,   -1.900, -1.160, 0.100);
+    UIButton(Ctrl.ToEnd,     -1.800, -1.160, 0.085);
+    UIButton(Ctrl.PrevFrame, -1.700, -1.150, 0.115);
+    UIButton(Ctrl.NextFrame, -1.600, -1.150, 0.085);
+    UIButton(Ctrl.Options,    2.350, -1.275, 0.500, -1.275, -1.160);
+    UIButton(Ctrl.Record,    -2.520, -1.150, 0.150);
+    UIButton(Ctrl.Track,      2.315, -1.150, 0.500);
+    UIButton(Ctrl.AddFlag,   -1.500, -1.160, 0.085);
 
+    TIMELINE_UI_Y_POS =
+    [
+        -1.075,  // 0 curr frame
+        -1.350,  // 1 progress bar
+        -0.955,  // 2 seeker
+        -0.800,  // 3 handles
+        -0.725,  // 4 handle timestamp
+        -1.1425, // 5 frame multiplier
+        -0.9575, // 6 flags
+        -1.225,  // 7 time elapsed
+        -1.075   // 8 flag count
+    ];
+}
+
+
+// progress bar markers only apply to the currently focused hero recording (track)
+// progress bar legend: // todo: add these when timeline is more feature complete
+// ▼ - trim markers
+// ● = flagged frame 
+// IconString(Icon.Skull) = death
+// ※ = kill
+// ⊙ = respawn
+// ◇ = objective lost/neutral
+// ◈ = objective contested
+// ◆ = objective captured
+// Lucio Ability 2 = timescale adjusted
+// 
 
 rule: "create timeline text"
 {
-    Number tooltipY : -1.25;
-
-    TIMELINE_CTRL_Y_POS = 
-    [
-        -1.160, // 0 play
-        -1.150, // 1 pause 
-        -1.155, // 2 stop 
-        -1.150, // 3 rewind
-        -1.150, // 4 forward
-        -1.150, // 5 start
-        -1.150, // 6 end 
-        -1.150, // 7 prev frame 
-        -1.150, // 8 next frame 
-        -1.075, // 9 curr frame
-        -1.150, // 10 options
-        -1.350, // 11 progress bar
-        -0.955, // 12 seeker
-        -0.800, // 13 handles
-        -0.725, // 14 handle timestamp
-        -1.1425  // 15 frame multiplier
-    ]; 
-
     // play
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) && !local.playback ? local : null, 
+        VisibleTo:      TimelineVisible() && !local.playbackActive ? local : null,
         Header:         "▶",
-        Position:       RenderPosOf(-2.380, local.timelineCtrlYPos[ButtonTextID.Play]), 
+        Position:       CtrlPos(Ctrl.Play),
         Scale:          2,
-        TextColor:      local.selectedButton == Ctrl.Play
-                            ? SelectedPulse() 
-                            : local.currFrame != local.maxFrame
-                                ? Color.White
-                                : DisabledButtonColor(),
+        TextColor:      ButtonColor(Ctrl.Play),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && (local.selectedButton == Ctrl.Play || local.selectedButton == Ctrl.Pause) ? local : null, 
-        Header:         !local.playback 
+        VisibleTo:      local.timelineOpen && (IsHovered(Ctrl.Play) || IsHovered(Ctrl.Pause)) ? local : null,
+        Header:         !local.playbackActive
                             ? <"Play [<0>]", BindString(Button.Jump)>
                             : <"Pause [<0>]", BindString(Button.Jump)>,
-        Position:       RenderPosOf(-2.38, tooltipY), 
+        Position:       TipPos(Ctrl.Play),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
-    // pause
+    // pause (two bars)
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) && local.playback ? local : null, 
+        VisibleTo:      TimelineVisible() && local.playbackActive ? local : null,
         Header:         "┃",
-        Position:       RenderPosOf(-2.405, local.timelineCtrlYPos[ButtonTextID.Pause]), 
+        Position:       CtrlPos(Ctrl.Pause, -0.020),
         Scale:          1.5,
-        TextColor:      local.selectedButton == Ctrl.Pause
-                            ? SelectedPulse() 
-                            : Color.White,
+        TextColor:      ButtonColor(Ctrl.Pause),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) && local.playback ? local : null, 
+        VisibleTo:      TimelineVisible() && local.playbackActive ? local : null,
         Header:         "┃",
-        Position:       RenderPosOf(-2.365, local.timelineCtrlYPos[ButtonTextID.Pause]), 
+        Position:       CtrlPos(Ctrl.Pause, 0.020),
         Scale:          1.5,
-        TextColor:      local.selectedButton == Ctrl.Pause
-                            ? SelectedPulse() 
-                            : Color.White,
+        TextColor:      ButtonColor(Ctrl.Pause),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    
+    // record
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         "●",
+        Position:       CtrlPos(Ctrl.Record),
+        Scale:          2,
+        TextColor:      !local.recording ? ButtonColor(Ctrl.Record) : RecordingPulse(),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.timelineOpen && (IsHovered(Ctrl.Record) || local.recording) ? local : null,
+        Header:         IsHovered(Ctrl.Record) ? 
+                            !local.recording ? "Start Recording [R x5]" : "Stop Recording [R x5]"
+                        : "Recording",
+        Position:       TipPos(Ctrl.Record),
+        Scale:          1,
+        TextColor:      !local.recording ? Color.White : RecordingPulse(),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    // record brackets
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() && local.recording ? local : null,
+        Header:         "[    ]",
+        Position:       CtrlPos(Ctrl.Record, 0, -0.0050),
+        Scale:          2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    // text recording indicator outside tl 
+    CreateInWorldText(
+        VisibleTo:      local.recording && !TimelineVisible() ? local : null,
+        Header:         "Recording Player Actions",
+        Position:       RenderPosOf(0, 1.70),
+        Scale:          1.5,
+        TextColor:      RecordingPulse(),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
+    // focused track
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         "Track",
+        Position:       CtrlPos(Ctrl.Track),
+        Scale:          1.5,
+        TextColor:      ButtonColor(Ctrl.Track),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    
 
     // stop
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "■",
-        Position:       RenderPosOf(-2.250, local.timelineCtrlYPos[ButtonTextID.Stop]), 
+        Position:       CtrlPos(Ctrl.Stop),
         Scale:          1.75,
-        TextColor:      local.selectedButton == Ctrl.Stop
-                            ? SelectedPulse() 
-                            : local.playback
-                                ? Color.White
-                                : DisabledButtonColor(),
+        TextColor:      ButtonColor(Ctrl.Stop),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.selectedButton == Ctrl.Stop ? local : null, 
-        Header:         <"Stop [Crouch + <0>]", BindString(Button.Jump)>,
-        Position:       RenderPosOf(-2.250, tooltipY), 
+        VisibleTo:      local.timelineOpen && IsHovered(Ctrl.Stop) ? local : null,
+        Header:         <"Stop Playback [Crouch + <0>]", BindString(Button.Jump)>,
+        Position:       TipPos(Ctrl.Stop),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -192,22 +395,18 @@ rule: "create timeline text"
 
     // rewind
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "«",
-        Position:       RenderPosOf(-2.125, local.timelineCtrlYPos[ButtonTextID.Rewind]), 
+        Position:       CtrlPos(Ctrl.Rewind),
         Scale:          2,
-        TextColor:      local.selectedButton == Ctrl.Rewind || local.rewind
-                            ? SelectedPulse() 
-                            : local.currFrame != local.minFrame
-                                ? Color.White
-                                : DisabledButtonColor(),
+        TextColor:      ButtonColor(Ctrl.Rewind, local.rewinding),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.selectedButton == Ctrl.Rewind ? local : null, 
+        VisibleTo:      local.timelineOpen && IsHovered(Ctrl.Rewind) ? local : null,
         Header:         <"Rewind [<0> + <1>]", BindString(Button.Ability1), BindString(Button.Ultimate)>,
-        Position:       RenderPosOf(-2.125, tooltipY), 
+        Position:       TipPos(Ctrl.Rewind),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -216,22 +415,18 @@ rule: "create timeline text"
 
     // forward
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "»",
-        Position:       RenderPosOf(-2.000, local.timelineCtrlYPos[ButtonTextID.Forward]), 
+        Position:       CtrlPos(Ctrl.Forward),
         Scale:          2,
-        TextColor:      local.selectedButton == Ctrl.Forward || local.forward
-                            ? SelectedPulse() 
-                            : local.currFrame != local.maxFrame
-                                ? Color.White
-                                : DisabledButtonColor(),
+        TextColor:      ButtonColor(Ctrl.Forward, local.fastForwarding),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.selectedButton == Ctrl.Forward ? local : null, 
+        VisibleTo:      local.timelineOpen && IsHovered(Ctrl.Forward) ? local : null,
         Header:         <"Fast Forward [<0> + <1>]", BindString(Button.Ability1), BindString(Button.Ability2)>,
-        Position:       RenderPosOf(-2, tooltipY), 
+        Position:       TipPos(Ctrl.Forward),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -240,22 +435,18 @@ rule: "create timeline text"
 
     // jump to start
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "≤",
-        Position:       RenderPosOf(-1.900, local.timelineCtrlYPos[ButtonTextID.ToStart]), 
+        Position:       CtrlPos(Ctrl.ToStart),
         Scale:          2,
-        TextColor:      local.selectedButton == Ctrl.ToStart
-                            ? SelectedPulse() 
-                            : local.currFrame != local.minFrame
-                                ? Color.White
-                                : DisabledButtonColor(),
+        TextColor:      ButtonColor(Ctrl.ToStart),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.selectedButton == Ctrl.ToStart ? local : null, 
+        VisibleTo:      local.timelineOpen && IsHovered(Ctrl.ToStart) ? local : null,
         Header:         <"To Start [Crouch + <0>]", BindString(Button.Ultimate)>,
-        Position:       RenderPosOf(-1.9, tooltipY), 
+        Position:       TipPos(Ctrl.ToStart),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -264,22 +455,18 @@ rule: "create timeline text"
 
     // jump to end
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "≥",
-        Position:       RenderPosOf(-1.800, local.timelineCtrlYPos[ButtonTextID.ToEnd]), 
+        Position:       CtrlPos(Ctrl.ToEnd),
         Scale:          2,
-        TextColor:      local.selectedButton == Ctrl.ToEnd
-                            ? SelectedPulse() 
-                            : local.currFrame != local.maxFrame
-                                ? Color.White
-                                : DisabledButtonColor(),
+        TextColor:      ButtonColor(Ctrl.ToEnd),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.selectedButton == Ctrl.ToEnd ? local : null, 
+        VisibleTo:      local.timelineOpen && IsHovered(Ctrl.ToEnd) ? local : null,
         Header:         <"To End [Crouch + <0>]", BindString(Button.Ability2)>,
-        Position:       RenderPosOf(-1.8, tooltipY), 
+        Position:       TipPos(Ctrl.ToEnd),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -288,22 +475,18 @@ rule: "create timeline text"
 
     // prev frame
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "‹",
-        Position:       RenderPosOf(-1.700, local.timelineCtrlYPos[ButtonTextID.PrevFrame]), 
+        Position:       CtrlPos(Ctrl.PrevFrame),
         Scale:          2,
-        TextColor:      local.selectedButton == Ctrl.PrevFrame
-                            ? SelectedPulse() 
-                            : local.currFrame != local.minFrame
-                                ? Color.White
-                                : DisabledButtonColor(),
+        TextColor:      ButtonColor(Ctrl.PrevFrame),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.selectedButton == Ctrl.PrevFrame ? local : null, 
+        VisibleTo:      local.timelineOpen && IsHovered(Ctrl.PrevFrame) ? local : null,
         Header:         <"Previous Frame [<0>]", BindString(Button.Ultimate)>,
-        Position:       RenderPosOf(-1.7, tooltipY), 
+        Position:       TipPos(Ctrl.PrevFrame),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -312,22 +495,18 @@ rule: "create timeline text"
 
     // next frame
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "›",
-        Position:       RenderPosOf(-1.600, local.timelineCtrlYPos[ButtonTextID.NextFrame]), 
+        Position:       CtrlPos(Ctrl.NextFrame),
         Scale:          2,
-        TextColor:      local.selectedButton == Ctrl.NextFrame
-                            ? SelectedPulse() 
-                            : local.currFrame != local.maxFrame
-                                ? Color.White
-                                : DisabledButtonColor(),
+        TextColor:      ButtonColor(Ctrl.NextFrame),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     CreateInWorldText(
-        VisibleTo:      local.tl && local.selectedButton == Ctrl.NextFrame ? local : null, 
+        VisibleTo:      local.timelineOpen && IsHovered(Ctrl.NextFrame) ? local : null,
         Header:         <"Next Frame [<0>]", BindString(Button.Ability2)>,
-        Position:       RenderPosOf(-1.6, tooltipY), 
+        Position:       TipPos(Ctrl.NextFrame),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -336,9 +515,40 @@ rule: "create timeline text"
 
     // current frame
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         <"<0>", PrettyNumber(local.currFrame)>,
-        Position:       RenderPosOf(-1.65, local.timelineCtrlYPos[ButtonTextID.CurrFrame]), 
+        Position:       UiPos(-1.65, Ui.CurrFrame),
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // add/remove flag
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         local.flags.Contains(local.currFrame) ? "−" : "+",
+        Position:       CtrlPos(Ctrl.AddFlag),
+        Scale:          2,
+        TextColor:      ButtonColor(Ctrl.AddFlag),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    CreateInWorldText(
+        VisibleTo:      local.timelineOpen && IsHovered(Ctrl.AddFlag) ? local : null,
+        Header:         <"<0> Flag [<1>]", local.flags.Contains(local.currFrame) ? "Remove" : "Add", BindString(Button.Melee)>,
+        Position:       TipPos(Ctrl.AddFlag),
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    // flag count
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         <"<0>/<1>", local.flags.Length, MAX_FLAGS>,
+        Position:       UiPos(-1.50, Ui.FlagCount),
         Scale:          1,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -347,42 +557,52 @@ rule: "create timeline text"
 
     // options
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "Options",
-        Position:       RenderPosOf(2.350, local.timelineCtrlYPos[ButtonTextID.Options]), 
+        Position:       CtrlPos(Ctrl.Options),
         Scale:          1.5,
-        TextColor:      local.selectedButton == Ctrl.Options
-                            ? SelectedPulse() 
-                            : Color.White,
+        TextColor:      ButtonColor(Ctrl.Options),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
     // progress bar
     CreateProgressBarInWorldText(
-        VisibleTo:        local.tl || local.closeAnim ? local : null, 
-        Text:             FormattedFrameToSec(local.currFrame),
-        Value:            (local.currFrame / local.totalFrames) * 100,
-        Position:         RenderPosOf(0, local.timelineCtrlYPos[ButtonTextID.ProgressBar]), 
+        VisibleTo:        TimelineVisible() ? local : null,
+        Text:             "",
+        Value:            FrameToFraction(local.currFrame) * 100,
+        Position:         UiPos(0, Ui.ProgressBar),
         Scale:            3.2,
-        ProgressBarColor: Color.White,
-        Reevaluation:     ProgressBarWorldEvaluation.VisibleToPositionAndValues,
+        ProgressBarColor: !local.recording ? Color.White : RecordingPulse(),
+        Reevaluation:     ProgressBarWorldEvaluation.VisibleToPositionValuesAndColor,
         Clipping:         Clipping.DoNotClip);
+    // time elapsed
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         FormattedFrameToSec(local.currFrame),
+        Position:       UiPos(0, Ui.TimeElapsed),
+        Scale:          4,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
     // seeker
     CreateInWorldText(
-        VisibleTo:      local.tl || local.closeAnim ? local : null,
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "┃",
-        Position:       RenderPosOf(((local.currFrame / local.totalFrames) * 5.2) - 2.6, local.timelineCtrlYPos[ButtonTextID.Seeker]), // convert 0-1 value to -2.6-2.6 for positioning
+        Position:       UiPos(FrameToTrackX(local.currFrame), Ui.Seeker),
         Scale:          2.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
+
     // left handle
     CreateInWorldText(
-        VisibleTo:      local.tl || local.closeAnim ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "▼",
-        Position:       RenderPosOf(local.leftHandlePos - 0.003, local.timelineCtrlYPos[ButtonTextID.Handles]), 
+        Position:       UiPos(TrimStartX() - HANDLE_X_OFFSET, Ui.Handles),
         Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -390,19 +610,20 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
     // left handle min timestamp
     CreateInWorldText(
-        VisibleTo:      local.tl || local.closeAnim ? local : null, 
-        Header:         FormattedFrameToSec(local.minFrame),
-        Position:       RenderPosOf(local.leftHandlePos - 0.003, local.timelineCtrlYPos[ButtonTextID.HandleTime]), 
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         FormattedFrameToSec(local.trimStart),
+        Position:       UiPos(TrimStartX() - HANDLE_X_OFFSET, Ui.HandleTime),
         Scale:          0.65,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
+
     // right handle
     CreateInWorldText(
-        VisibleTo:      local.tl || local.closeAnim ? local : null, 
+        VisibleTo:      TimelineVisible() ? local : null,
         Header:         "▼",
-        Position:       RenderPosOf(local.rightHandlePos - 0.003, local.timelineCtrlYPos[ButtonTextID.Handles]), 
+        Position:       UiPos(TrimEndX() - HANDLE_X_OFFSET, Ui.Handles),
         Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -410,9 +631,9 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
     // right handle max timestamp
     CreateInWorldText(
-        VisibleTo:      local.tl || local.closeAnim ? local : null, 
-        Header:         FormattedFrameToSec(local.maxFrame),
-        Position:       RenderPosOf(local.rightHandlePos - 0.003, local.timelineCtrlYPos[ButtonTextID.HandleTime]), 
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         FormattedFrameToSec(local.trimEnd),
+        Position:       UiPos(TrimEndX() - HANDLE_X_OFFSET, Ui.HandleTime),
         Scale:          0.65,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
@@ -421,10 +642,10 @@ rule: "create timeline text"
 
     // frame multiplier while fast forward/rewind
     CreateInWorldText(
-        VisibleTo:      (local.tl || local.closeAnim) && (local.rewind || local.forward) ? local : null, 
-        Header:         <"x<0>", local.frameMult>,
-        Position:       RenderPosOf(-2.0625, local.timelineCtrlYPos[ButtonTextID.FrameMult]), 
-        Scale:          0.85,
+        VisibleTo:      TimelineVisible() && (local.rewinding || local.fastForwarding) ? local : null,
+        Header:         <"x<0>", local.framesToSkip>,
+        Position:       UiPos(-2.0625, Ui.FrameMult),
+        Scale:          0.75,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
@@ -432,152 +653,124 @@ rule: "create timeline text"
 
     // cursor
     CreateInWorldText(
-        VisibleTo:      local.tl ? local : null,
-        Header:         !local.isDragging
-                            ? "↖" 
-                            : "↔",
-        Position:       !local.isDragging 
-                            ? RenderPosOf(CursorX() + 0.05, CursorY() - 0.105) 
-                            : RenderPosOf(CursorX(), CursorY() - 0.07),
-        TextColor:      Color.White,
-        Scale:          3,
+        VisibleTo:      local.timelineOpen ? local : null,
+        Header:         [TXString("C0000000002DD21"), "↔", "⊙"][CursorState()],
+        Position:       RenderPosOf(
+                            CursorX() + [ 0.07,  0,    0][CursorState()],
+                            CursorY() + [-0.14, -0.07, -0.07][CursorState()]),
+        TextColor:      [Color.White, Color.White, Color.White][CursorState()],
+        Scale:          2,
         Clipping:       Clipping.DoNotClip,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor
-    );
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor);
 }
 
-playervar Boolean anim;
-playervar Boolean closeAnim;
+void StepAnim(Boolean closing) playervar "TL Sub : Step Anim"
+{
+    for (Number i = 0; i < TIMELINE_CTRL_Y_POS.Length; i++)
+        timelineCtrlYPos[i] += ((closing ? ANIM_HIDDEN_Y : TIMELINE_CTRL_Y_POS[i]) - timelineCtrlYPos[i]) * ANIM_SPEED;
 
-Number animStart: -2.9;
-Number animEnd: -2.89;
-Number animSpeed: 0.15;
+    for (Number i = 0; i < TIMELINE_UI_Y_POS.Length; i++)
+        timelineUiYPos[i] += ((closing ? ANIM_HIDDEN_Y : TIMELINE_UI_Y_POS[i]) - timelineUiYPos[i]) * ANIM_SPEED;
+}
+
 rule: "open anim"
 Event.OngoingPlayer
-if (tl)
-if (!closeAnim)
+if (timelineOpen)
+if (!closing)
 {
-    anim = true;
+    animating = true;
 
-    while (tl && anim)
+    while (timelineOpen && animating)
     {
-        for (Number i = 0; i < TIMELINE_CTRL_Y_POS.Length; i++)
-            timelineCtrlYPos[i] += (TIMELINE_CTRL_Y_POS[i] - timelineCtrlYPos[i]) * animSpeed;
+        StepAnim(false);
 
-        if (timelineCtrlYPos.Last >= TIMELINE_CTRL_Y_POS.Last - 0.01)
-        {
-            anim = false;
+        if (AlmostEqual(timelineUiYPos.Last, TIMELINE_UI_Y_POS.Last))
             break;
-        }
 
         MinWait();
     }
 
-    anim = false;
+    animating = false;
 }
 
 rule: "close anim"
 Event.OngoingPlayer
-if (!tl)
+if (!timelineOpen)
 {
-    WaitUntil(!anim, 1);
-    closeAnim = true;
-    anim = true;
+    WaitUntil(!animating, 1);
+    closing = true;
+    animating = true;
 
-    while (anim && closeAnim)
+    while (animating && closing)
     {
-        for (Number i = 0; i < TIMELINE_CTRL_Y_POS.Length; i++)
-            timelineCtrlYPos[i] += (animStart - timelineCtrlYPos[i]) * animSpeed;
+        StepAnim(true);
 
-        if (timelineCtrlYPos.Last <= animEnd)
-        {
-            anim = false;
+        if (AlmostEqual(timelineUiYPos.Last, ANIM_HIDDEN_Y))
             break;
-        }
 
         MinWait();
     }
 
-    anim = false;
-    closeAnim = false;
+    animating = false;
+    closing = false;
 }
 
+////////////////////
+//
+// playback
+//
+////////////////////
 
-playervar Boolean playing; // normal playback bool
-playervar Boolean rewind; // rewind bool
-playervar Boolean forward; // fast forward bool
-playervar Boolean playback; // any form of playback bool
+
 void StopAll() playervar "stop all playback"
 {
-    playback = false;
+    playbackActive = false;
     playing = false;
-    forward = false;
-    rewind = false;
+    fastForwarding = false;
+    rewinding = false;
+    recording = false;
 }
-Number X: CursorX(player);
-Number Y: CursorY(player);
 
 rule: "get hovered tl control item"
 Event.OngoingPlayer
-if (tl)
+if (timelineOpen)
 {
     Number cX = CursorX(player);
     Number cY = CursorY(player);
+    Number hit = -1;
 
-    if (IsInRange(cY, -1.15, -1.05))
+    for (Number i = 0; i < CTRL_HIT_X_MIN.Length; i++)
     {
-        if      (!playback && currFrame != maxFrame && IsInRange(cX, -2.450, -2.325))
-            selectedButton = Ctrl.Play;
-
-        else if (playback &&                           IsInRange(cX, -2.450, -2.325))
-            selectedButton = Ctrl.Pause;
-
-        else if (playback &&                           IsInRange(cX, -2.325, -2.200))
-            selectedButton = Ctrl.Stop;
-
-        else if (currFrame != minFrame &&              IsInRange(cX, -2.200, -2.075))
-            selectedButton = Ctrl.Rewind;
-
-        else if (currFrame != maxFrame &&              IsInRange(cX, -2.075, -1.950))
-            selectedButton = Ctrl.Forward;
-
-        else if (currFrame != minFrame &&              IsInRange(cX, -1.950, -1.850))
-            selectedButton = Ctrl.ToStart;
-
-        else if (currFrame != maxFrame &&              IsInRange(cX, -1.850, -1.765))
-            selectedButton = Ctrl.ToEnd;
-
-        else if (currFrame != minFrame &&              IsInRange(cX, -1.765, -1.650))
-            selectedButton = Ctrl.PrevFrame;
-
-        else if (currFrame != maxFrame &&              IsInRange(cX, -1.650, -1.565))
-            selectedButton = Ctrl.NextFrame;
-
-        else if (                                      IsInRange(cX,  2.100,  2.600))
-            selectedButton = Ctrl.Options;
-
-        else
-            selectedButton = Ctrl.Invalid;
+        if (IsInRange(cX, CTRL_HIT_X_MIN[i], CTRL_HIT_X_MAX[i])
+            && IsInRange(cY, CTRL_HIT_Y_MIN[i], CTRL_HIT_Y_MAX[i])
+            && CtrlEnabled(i, player))
+        {
+            hit = i;
+            break;
+        }
     }
-    else
-        selectedButton = Ctrl.Invalid;
+
+    hoveredCtrl = hit;
 
     MinWait();
     LoopIfConditionIsTrue();
-    selectedButton = Ctrl.Invalid;
+    hoveredCtrl = -1;
 }
 
-void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
+void ActivateCtrl(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
 {
+    if (recording && ctrl != Ctrl.Record && ctrl != Ctrl.AddFlag)
+        return;
+
     switch (ctrl)
     {
         case Ctrl.Play:
-            if (currFrame != maxFrame)
+            if (currFrame != trimEnd)
             {
-                playback = true;
+                playbackActive = true;
                 playing = true;
-                forward = false;
-                rewind = false;
+                fastForwarding = false;
+                rewinding = false;
             }
             break;
         case Ctrl.Pause:
@@ -585,56 +778,89 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
             break;
         case Ctrl.Stop:
             StopAll();
-            currFrame = minFrame;
+            currFrame = trimStart;
             break;
         case Ctrl.Rewind:
-            if (rewind && frameMult != 8)
-                frameMult += 2;
-            else if (!rewind || forward)
-                frameMult = 2;
-
-            if (currFrame != minFrame)
+            if (fastForwarding)
             {
-                playback = true;
-                rewind = true;
-                forward = false;
+                StopAll();
+                break;
+            }
+
+            if (rewinding && framesToSkip != 32)
+                framesToSkip *= 2;
+            else if (!rewinding)
+                framesToSkip = 2;
+
+            if (currFrame != trimStart)
+            {
+                playbackActive = true;
+                rewinding = true;
                 playing = false;
             }
             break;
         case Ctrl.Forward:
-            if (forward && frameMult != 8)
-                frameMult += 2;
-            else if (!forward || rewind)
-                frameMult = 2;
-
-            if (currFrame != maxFrame)
+            if (rewinding)
             {
-                playback = true;
-                forward = true;
-                rewind = false;
+                StopAll();
+                break;
+            }
+
+            if (fastForwarding && framesToSkip != 32)
+                framesToSkip *= 2;
+            else if (!fastForwarding)
+                framesToSkip = 2;
+
+            if (currFrame != trimEnd)
+            {
+                playbackActive = true;
+                fastForwarding = true;
                 playing = false;
             }
             break;
         case Ctrl.ToStart:
-            currFrame = minFrame;
+            currFrame = trimStart;
             break;
         case Ctrl.ToEnd:
             StopAll();
-            currFrame = maxFrame;
+            currFrame = trimEnd;
             break;
         case Ctrl.PrevFrame:
-            if (playback)
+            if (playbackActive)
                 StopAll();
 
-            if (currFrame > minFrame)
+            if (currFrame > trimStart)
                 currFrame--;
             break;
         case Ctrl.NextFrame:
-            if (playback)
+            if (playbackActive)
                 StopAll();
 
-            if (currFrame < maxFrame)
+            if (currFrame < trimEnd)
                 currFrame++;
+            break;
+        case Ctrl.AddFlag:
+            ToggleFlag(currFrame);
+            break;
+        case Ctrl.Record:
+            if (recording) 
+            { 
+                StopAll(); 
+                break; 
+            }
+
+            if (playbackActive)
+                StopAll();
+                
+            if (currFrame != trimEnd)
+            {
+                playbackActive = true;
+                playing = true;
+                recording = true;
+                fastForwarding = false;
+                rewinding = false;
+            }
+
             break;
     }
 }
@@ -642,192 +868,236 @@ void ControlSelectionHandler(Number | Ctrl ctrl) playervar "TL Sub : Selection H
 rule: "play"
 Event.OngoingPlayer
 if (playing)
-if (currFrame < maxFrame)
+if (currFrame < trimEnd)
 {
     currFrame++;
 
-    if (currFrame >= maxFrame)
+    if (currFrame >= trimEnd)
     {
         StopAll();
 
-        if (currFrame > maxFrame)
-            currFrame = maxFrame;
+        if (currFrame > trimEnd)
+            currFrame = trimEnd;
     }
 
     MinWait(); // each frame lasts for 0.016s, so increment by 1 every 0.016s
     LoopIfConditionIsTrue();
 }
 
-playervar Number frameMult; // how many frames to jump per tick during rewind/fast forward
-rule: "rewind loop"
+rule: "fast forward / rewind loop"
 Event.OngoingPlayer
-if (rewind)
-if (currFrame > minFrame)
+if (rewinding || fastForwarding)
+if (rewinding ? currFrame > trimStart : currFrame < trimEnd)
 {
-    currFrame -= Min(frameMult, currFrame - minFrame);
+    currFrame = Clamp(currFrame + (fastForwarding ? framesToSkip : -framesToSkip), trimStart, trimEnd);
 
-    if (currFrame <= minFrame) 
-    {
+    if (rewinding ? currFrame <= trimStart : currFrame >= trimEnd)
         StopAll();
 
-        if (currFrame < minFrame)
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+////////////////////
+//
+// timeline flagging
+//
+////////////////////
+
+Number MAX_FLAGS: 8;
+Number SNAP_DIST: 0.0175;
+void ToggleFlag(Number frame) playervar "TL Sub : Toggle Flag"
+{
+    if (flags.Contains(frame))
+        flags = flags - frame;
+    else if (flags.Length < MAX_FLAGS)
+        flags = flags + frame;
+}
+
+rule: "add/remove flag"
+Event.OngoingPlayer
+if (timelineOpen)
+if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
+{
+    if (hoverFlagIndex != -1)
+    {
+        if (IsMeleeHeld() || IsSecondaryHeld())
+            flags = RemoveFromArrayAtIndex(flags, hoverFlagIndex);
+        else
+            currFrame = Clamp(flags[hoverFlagIndex], trimStart, trimEnd);
+    }
+    else if (IsMeleeHeld())
+    {
+        ToggleFlag(currFrame);
+    }
+
+    WaitUntil(!IsMeleeHeld() && !IsPrimaryHeld() && !IsSecondaryHeld(), 99999);
+}
+
+rule: "cursor hover flag"
+Event.OngoingPlayer
+if (timelineOpen)
+{
+    Number found = -1;
+    if (!IsDragging(player) && IsInRange(CursorY(player), TIMELINE_UI_Y_POS[Ui.Flags], TIMELINE_UI_Y_POS[Ui.Flags] + 0.10))
+    {
+        for (Number i = 0; i < flags.Length; i++)
         {
-            currFrame = minFrame;
-            ThrowError("currFrame is lower than minFrame, something broke");
+            if (Abs(FrameToTrackX(flags[i], player) - CursorX(player)) < 0.015)
+            {
+                found = i;
+                break;
+            }
+        }
+    }
+    hoverFlagIndex = found;
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+rule: "create flag markers"
+{
+    for (Number i = 0; i < MAX_FLAGS; i++)
+    {
+        CreateInWorldText(
+            VisibleTo:      TimelineVisible() && local.flags.Length > Once(i) ? local : null,
+            Header:         "┃",
+            Position:       UiPos(FrameToTrackX(local.flags[Once(i)]), Ui.Flags),
+            Scale:          1,
+            TextColor:      Color.Yellow,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+    }
+}
+
+////////////////////
+//
+// drag handling
+//
+////////////////////
+
+rule: "drag"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+if (dragTarget != Drag.None)
+{
+    Number snapFrame = -1;
+    for (Number i = 0; i < flags.Length; i++)
+    {
+        if (Abs(FrameToTrackX(flags[i], player) - CursorX(player)) < SNAP_DIST)
+        {
+            snapFrame = flags[i];
+            break;
         }
     }
 
-    MinWait();
-    LoopIfConditionIsTrue();
-}
-
-rule: "forward loop"
-Event.OngoingPlayer
-if (forward)
-if (currFrame < maxFrame)
-{
-    currFrame += Min(frameMult, maxFrame - currFrame);
-
-    if (currFrame >= maxFrame)
+    switch (dragTarget)
     {
-        StopAll();
+        case Drag.Seeker:
+            if (snapFrame != -1)
+                currFrame = Clamp(snapFrame, trimStart, trimEnd);
+            else
+                currFrame = Clamp(TrackXToFrame(CursorX(player), player), trimStart, trimEnd);
 
-        if (currFrame > maxFrame)
-        {
-            currFrame = maxFrame;
-            ThrowError("currFrame is greater than maxFrame, something broke");
-        }
+            break;
+
+        case Drag.LHandle:
+            if (snapFrame != -1 && snapFrame <= trimEnd)
+                trimStart = snapFrame;
+            else
+                trimStart = Clamp(TrackXToFrame(CursorX(player), player), 0, trimEnd);
+
+            if (currFrame < trimStart)
+            {
+                StopAll();
+                currFrame = trimStart;
+            }
+
+            break;
+
+        case Drag.RHandle:
+            if (snapFrame != -1 && snapFrame >= trimStart)
+                trimEnd = snapFrame;
+            else
+                trimEnd = Clamp(TrackXToFrame(CursorX(player), player), trimStart, totalFrames);
+
+            if (currFrame > trimEnd)
+            {
+                StopAll();
+                currFrame = trimEnd;
+            }
+
+            break;
     }
 
     MinWait();
     LoopIfConditionIsTrue();
 }
 
-playervar Boolean isDraggingSeeker;
-playervar Boolean isDraggingLHandle;
-playervar Boolean isDraggingRHandle;
-playervar Boolean isDragging;
-playervar Number minFrame;
-playervar Number maxFrame;
-playervar Number seekNormal;
-playervar Number currFrame;
-playervar Number leftHandlePos;
-playervar Number leftHandleNormal;
-playervar Number rightHandlePos;
-playervar Number rightHandleNormal;
-rule: "drag seeker"
+rule: "grab lhandle"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (isDraggingSeeker)
+if (IsInRange(CursorX(player), TrimStartX(player) - HANDLE_HALF_W, TrimStartX(player) + HANDLE_HALF_W)
+    && (TrimEndX(player) - TrimStartX(player)) > HANDLE_MIN_GAP) // prevent grabbing left handle if right handle is overlapping
+if (IsInRange(CursorY(player), HANDLE_Y_MIN, HANDLE_Y_MAX))
+if (!IsDragging(player))
 {
-    // can probably do this better
-    seekNormal = NormalizedRange(Clamp(CursorX(player), leftHandlePos, rightHandlePos), -2.60, 2.60); // normalize the position of the seeker from 0-1
-    currFrame = Floor(totalFrames * seekNormal);
+    dragTarget = Drag.LHandle;
 
-    MinWait();
-    LoopIfConditionIsTrue();
+    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
+
+    dragTarget = Drag.None;
 }
 
-rule: "drag lhandle"
+rule: "grab rhandle"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (isDraggingLHandle)
+if (IsInRange(CursorX(player), TrimEndX(player) - HANDLE_HALF_W, TrimEndX(player) + HANDLE_HALF_W)
+    || (TrimEndX(player) - TrimStartX(player)) < HANDLE_MIN_GAP) // grab right handle if its overlapping the left handle
+if (IsInRange(CursorY(player), HANDLE_Y_MIN, HANDLE_Y_MAX))
+if (!IsDragging(player))
 {
-    leftHandlePos = Clamp(CursorX(player), -2.60, rightHandlePos);
-    leftHandleNormal = NormalizedRange(leftHandlePos, -2.60, 2.60);
-    minFrame = Floor(totalFrames * leftHandleNormal);
+    dragTarget = Drag.RHandle;
 
-    if (currFrame < minFrame)
-    {
-        StopAll();
-        currFrame = minFrame;
-    }
+    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
 
-    MinWait();
-    LoopIfConditionIsTrue();
+    dragTarget = Drag.None;
 }
 
-rule: "drag rhandle"
+rule: "grab seeker"
 Event.OngoingPlayer
 if (IsPrimaryHeld())
-if (isDraggingRHandle)
+if (Abs(CursorX(player)) < TRACK_HALF)
+if (IsInRange(CursorY(player), SEEKER_Y_MIN, SEEKER_Y_MAX))
+if (!IsDragging(player))
 {
-    rightHandlePos = Clamp(CursorX(player), leftHandlePos, 2.60);
-    rightHandleNormal = NormalizedRange(rightHandlePos, -2.60, 2.60);
-    maxFrame = Floor(totalFrames * rightHandleNormal);
+    dragTarget = Drag.Seeker;
 
-    if (currFrame > maxFrame)
-    {
-        StopAll();
-        currFrame = maxFrame;
-    }
-
-    MinWait();
-    LoopIfConditionIsTrue();
-}
-
-rule: "in lhandle bounds"
-Event.OngoingPlayer
-if (IsPrimaryHeld())
-if (IsInRange(X, leftHandlePos - 0.0375, leftHandlePos + 0.0375)
-    && (rightHandlePos - leftHandlePos) > 0.05) // dont grab left handle if right handle is overlapping
-if (IsInRange(Y, -0.80, -0.725))
-if (!isDragging)
-{
-    isDraggingLHandle = true;
-    isDragging = true;
-
-    WaitUntil(!IsPrimaryHeld() || !tl, 99999);
-
-    isDraggingLHandle = false;
-    isDragging = false;
-}
-
-rule: "in rhandle bounds"
-Event.OngoingPlayer
-if (IsPrimaryHeld())
-if (IsInRange(X, rightHandlePos - 0.0375, rightHandlePos + 0.0375) 
-    || (rightHandlePos - leftHandlePos) < 0.05) // grab right handle if its overlapping the left handle
-if (IsInRange(Y, -0.80, -0.725))
-if (!isDragging)
-{
-    isDraggingRHandle = true;
-    isDragging = true;
-
-    WaitUntil(!IsPrimaryHeld() || !tl, 99999);
-
-    isDraggingRHandle = false;
-    isDragging = false;
-}
-
-rule: "in seek bounds"
-Event.OngoingPlayer
-if (IsPrimaryHeld())
-if (Abs(X) < 2.60)
-if (IsInRange(Y, -0.975, -0.825))
-if (!isDragging)
-{
-    isDraggingSeeker = true;
-    isDragging = true;
-
-    if (playback)
+    if (playbackActive || recording)
         StopAll();
 
-    WaitUntil(!IsPrimaryHeld() || !tl, 99999);
+    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
 
-    isDraggingSeeker = false;
-    isDragging = false;
+    dragTarget = Drag.None;
 }
+
+////////////////////
+//
+// keybinds
+//
+////////////////////
+
 
 rule: "open menu toggle"
 Event.OngoingPlayer
 if (IsInteractHeld())
 {
     WaitIfTrue(0.2);
-    selectedButton = Ctrl.Invalid;
+    hoveredCtrl = Ctrl.Invalid;
 
-    tl = !tl;
-    if (tl)
+    timelineOpen = !timelineOpen;
+    if (timelineOpen)
     {
         facing = Facing();
         SetAimSpeed(player, 10);
@@ -842,61 +1112,60 @@ if (IsInteractHeld())
     }
 }
 
-rule: "tl item control keybinds"
+rule: "tl control keybinds"
 Event.OngoingPlayer
-if (tl)
-if (!anim)
-if (!isDragging)
+if (timelineOpen)
+if (!animating)
+if (!IsDragging(player))
 if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
 {
     // Left Click
-    if (IsPrimaryHeld() && selectedButton != Ctrl.Invalid)
+    if (IsPrimaryHeld() && hoveredCtrl != Ctrl.Invalid)
     {
-        WaitUntil(!IsPrimaryHeld(), 99999);
-        async! ControlSelectionHandler(selectedButton);
+        WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
+        async! ActivateCtrl(hoveredCtrl);
     }
 
     // keybinds
     else if (IsJumpHeld())
     {
         // Space
-        if (!playback)
-            async! ControlSelectionHandler(Ctrl.Play);
-        else 
+        if (!playbackActive)
+            async! ActivateCtrl(Ctrl.Play);
+        else
         {
             // Ctrl + Space
             if (IsCrouchHeld())
             {
-                async! ControlSelectionHandler(Ctrl.Stop);
+                async! ActivateCtrl(Ctrl.Stop);
                 Abort();
             }
-            else 
+            else
             {
-                async! ControlSelectionHandler(Ctrl.Pause);
+                async! ActivateCtrl(Ctrl.Pause);
             }
         }
-
     }
     else if (IsUltimateHeld())
     {
         // Ctrl + Q
         if (IsCrouchHeld())
         {
-            async! ControlSelectionHandler(Ctrl.ToStart);
+            async! ActivateCtrl(Ctrl.ToStart);
             Abort();
         }
 
         // Shift + Q
         if (IsAbility1Held())
         {
-            async! ControlSelectionHandler(Ctrl.Rewind);
+            async! ActivateCtrl(Ctrl.Rewind);
             Abort();
         }
 
-        // loop next frame while Q held
+        // loop prev frame while Q held
         while (IsUltimateHeld())
         {
-            async! ControlSelectionHandler(Ctrl.PrevFrame);
+            async! ActivateCtrl(Ctrl.PrevFrame);
             WaitIfTrue(0.125);
         }
     }
@@ -905,31 +1174,73 @@ if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
         // Ctrl + E
         if (IsCrouchHeld())
         {
-            async! ControlSelectionHandler(Ctrl.ToEnd);
+            async! ActivateCtrl(Ctrl.ToEnd);
             Abort();
         }
 
         // Shift + E
         if (IsAbility1Held())
         {
-            async! ControlSelectionHandler(Ctrl.Forward);
+            async! ActivateCtrl(Ctrl.Forward);
             Abort();
         }
 
         // loop next frame while E held
         while (IsAbility2Held())
         {
-            async! ControlSelectionHandler(Ctrl.NextFrame);
+            async! ActivateCtrl(Ctrl.NextFrame);
             WaitIfTrue(0.125);
         }
     }
 }
 
-Number SCREEN_WIDTH:   3.65;
-Number SCREEN_HEIGHT:  2.125;
+playervar Number recordBindCount;
+playervar Number lastRecordPress;
+rule: "recording keybinds"
+Event.OngoingPlayer
+if (IsReloadHeld())
+{
+    // 5x R to toggle recording
+    if (Time() - lastRecordPress > 0.5)
+        recordBindCount = 0;
+
+    recordBindCount++;
+    lastRecordPress = Time();
+
+    if (recordBindCount >= 5)
+    {
+        recordBindCount = 0;
+        async! ActivateCtrl(Ctrl.Record);
+    }
+}
+
+rule: "flag jump keybind"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!animating)
+if (!recording)
+if (!IsDragging(player))
+if (IsAbility1Held())
+if (Abs(ThrottleX()) > 0.5)
+{
+    Number[] targets = ThrottleX() < 0
+        ? SortedArray(flags.Filter(f => f > currFrame && f <= trimEnd), Curr())    // right ascending
+        : SortedArray(flags.Filter(f => f < currFrame && f >= trimStart), -Curr()); // left descending
+
+    if (playbackActive)
+        StopAll();
+
+    if (targets.Length > 0)
+        currFrame = targets.First;
+    else
+        currFrame = ThrottleX() > 0 ? trimStart : trimEnd;
+
+    WaitUntil(Abs(ThrottleX()) < 0.5 || !IsAbility1Held(), 99999);
+}
+
 rule: "outside of screen bounds"
 Event.OngoingPlayer
-if (tl)
+if (timelineOpen)
 if (Abs(CursorX(player)) > SCREEN_WIDTH || Abs(CursorY(player)) > SCREEN_HEIGHT)
 {
     SetFacing(Direction: DirectionFromAngles(
