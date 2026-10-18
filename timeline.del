@@ -10,6 +10,8 @@ Number TOOLTIP_SIZE: 0.9;
 
 Number BUTTON_ROW_Y_MIN: -1.15;
 Number BUTTON_ROW_Y_MAX: -1.05;
+Number CTRL_BAND_Y_MIN: -1.275; // lowest button hitbox (options)
+Number CTRL_BAND_Y_MAX: -1.05;  // highest button hitbox
 
 Number HANDLE_Y_MIN:     -0.80;
 Number HANDLE_Y_MAX:     -0.725;
@@ -36,9 +38,13 @@ globalvar Number[] CTRL_HIT_Y_MAX;
 globalvar Number[] TIMELINE_UI_Y_POS;
 
 playervar Vector facing;            // cursor math facing vector to compare
+playervar Number facingX;
+playervar Number facingY;
+
 playervar Boolean timelineOpen;
 playervar Boolean trackMenuOpen;
 playervar Number hoveredCtrl;       // hovered control item (Ctrl)
+playervar Boolean[] ctrlEnabled;
 playervar Number[] timelineCtrlYPos;
 playervar Number[] timelineUiYPos;
 
@@ -107,16 +113,21 @@ Color WhiteYellowPulse():
     CustomColor(255, 255, Oscillate(500, 0, 255), 255);
 Color DisabledColor(): CustomColor(140, 140, 140, 255);
 
-playervar Number facingX;
-playervar Number facingY;
 Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), p.facingX);
 Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), p.facingY);
+Any CursorState(Player p = local): IsDragging(p) ? Cursor.Drag : p.hoverFlagIndex != -1 ? Cursor.FlagHover : Cursor.Default;
 
 Any RenderPosOf(Number x = 0, Number y = 0):
     Update(EyePos(local) + 100 * (
         x * WorldVectorOf(Right(), local, LocalVector.Rotation)
       + y * Cross(Facing(local), WorldVectorOf(Left(), local, LocalVector.Rotation))
       + 3 * Facing(local)));
+
+Any CtrlPos(Number | Ctrl id, Number xOffset = 0, Number yOffset = 0): RenderPosOf(CTRL_X[id] + xOffset, local.timelineCtrlYPos[id] + yOffset);
+Any UiPos(Number x, Number | Ui id, Number yOffset = 0): RenderPosOf(x, local.timelineUiYPos[id] + yOffset);
+Any CtrlUiPos(Number | Ctrl id, Number | Ui ui, Number yOffset = 0): UiPos(CTRL_X[id], ui, yOffset);
+Any CtrlMidUiPos(Number | Ctrl a, Number | Ctrl b, Number | Ui ui, Number yOffset = 0): UiPos((CTRL_X[a] + CTRL_X[b]) / 2, ui, yOffset); // ui information item centered between two buttons
+Any TipPos(Number | Ctrl id): RenderPosOf(CTRL_X[id], TOOLTIP_Y);
 
 Number FrameToSeconds(Number f): f * delta;
 
@@ -147,16 +158,7 @@ Number TrackXToFrame(Number x, Player p = local):   Floor(p.timelineFrames * Nor
 Number TrimStartX(Player p = local):                FrameToTrackX(p.trimStart, p);
 Number TrimEndX(Player p = local):                  FrameToTrackX(p.trimEnd, p);
 
-
-playervar Boolean[] ctrlEnabled;
 Boolean CtrlEnabled(Number | Ctrl c): local.ctrlEnabled[c];
-Any CtrlPos(Number | Ctrl id, Number xOffset = 0, Number yOffset = 0): RenderPosOf(CTRL_X[id] + xOffset, local.timelineCtrlYPos[id] + yOffset);
-Any UiPos(Number x, Number | Ui id, Number yOffset = 0): RenderPosOf(x, local.timelineUiYPos[id] + yOffset);
-Any CtrlUiPos(Number | Ctrl id, Number | Ui ui, Number yOffset = 0): UiPos(CTRL_X[id], ui, yOffset);
-Any CtrlMidUiPos(Number | Ctrl a, Number | Ctrl b, Number | Ui ui, Number yOffset = 0): UiPos((CTRL_X[a] + CTRL_X[b]) / 2, ui, yOffset); // ui information item centered between two buttons
-Any TipPos(Number | Ctrl id): RenderPosOf(CTRL_X[id], TOOLTIP_Y);
-
-Any CursorState(Player p = local): IsDragging(p) ? Cursor.Drag : p.hoverFlagIndex != -1 ? Cursor.FlagHover : Cursor.Default;
 void UpdateCtrlEnabled() globalvar "Update Ctrl Enabled"
 {
     ctrlEnabled = [
@@ -182,6 +184,12 @@ Color ButtonColor(Number | Ctrl id, Boolean active = false):
         : CtrlEnabled(id)
             ? Color.White
             : DisabledColor();
+
+////////////////////
+//
+// init
+//
+////////////////////
 
 globalvar String txCharacter;
 String TXString(String value): "{0}TX {1}>".Format([txCharacter, value]);
@@ -248,10 +256,16 @@ rule: "init timeline tables"
     ];
 }
 
+////////////////////
+//
+// timeline text
+//
+////////////////////
+
 // progress bar markers only apply to the currently focused hero recording (track)
 // progress bar legend: // todo: add these when timeline is more feature complete
 // ▼ - trim markers
-// ● = flagged frame 
+// ● = flagged frame
 // × = death
 // ※ = kill
 // ⊙ = respawn
@@ -259,8 +273,8 @@ rule: "init timeline tables"
 // ◈ = objective contested
 // ◆ = objective captured
 // Lucio Ability 2 = timescale adjusted
-// 
-// 
+//
+//
 
 rule: "create timeline text"
 {
@@ -628,6 +642,57 @@ rule: "create timeline text"
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor);
 }
 
+// end of each track on timeline
+rule: "create track end markers"
+{
+    for (Number i = 0; i < MAX_TRACKS; i++)
+    {
+        CreateInWorldText(
+            VisibleTo:      TimelineVisible() && TrackFrames(Once(i)) > 0 ? local : null,
+            Header:         <" I\nT<0>", Once(i) + 1>,
+            Position:       UiPos(FrameToTrackX(TrackEnd(Once(i))), Ui.TrackEnds),
+            Scale:          1,
+            TextColor:      local.focusedTrack == Once(i) ? BluePulse() : Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+    }
+}
+
+////////////////////
+//
+// open / close
+//
+////////////////////
+
+rule: "open menu toggle"
+Event.OngoingPlayer
+if (IsInteractHeld())
+{
+    WaitIfTrue(0.2);
+    hoveredCtrl = Ctrl.Invalid;
+
+    timelineOpen = !timelineOpen;
+    if (timelineOpen)
+    {
+        facing = Facing();
+        facingX = HorizontalAngleFromDirection(facing);
+        facingY = VerticalAngleFromDirection(facing);
+        SetAimSpeed(player, 10);
+        SetMoveSpeed(player, 0);
+        SetStatus(player, null, Status.Stunned, 0.01); // small stun to force player to stop holding abilities
+        DisallowAllButtons();
+    }
+    else
+    {
+        trackMenuOpen = false;
+        optionsMenuOpen = false;
+        SetAimSpeed(player, 100);
+        SetMoveSpeed(player, 100);
+        AllowAllButtons();
+    }
+}
+
 void StepAnim(Boolean closing) playervar "TL Sub : Step Anim"
 {
     for (Number i = 0; i < TIMELINE_CTRL_Y_POS.Length; i++)
@@ -681,14 +746,10 @@ if (!timelineOpen)
 
 ////////////////////
 //
-// controls
+// cursor / controls
 //
 ////////////////////
 
-Number CTRL_BAND_Y_MIN: -1.275; // lowest button hitbox (options)
-Number CTRL_BAND_Y_MAX: -1.05;  // highest button hitbox
-
-// all cursor hover detection in one loop, the regions dont overlap so only one is tested per tick
 rule: "cursor hover"
 Event.OngoingPlayer
 if (timelineOpen)
@@ -706,7 +767,6 @@ if (timelineOpen)
             Min(Max(facingX - cX, facingX - SCREEN_WIDTH / 1.01), facingX + SCREEN_WIDTH / 1.01),
             Min(Max(facingY - cY, facingY - SCREEN_HEIGHT / 1.01), facingY + SCREEN_HEIGHT / 1.01)));
 
-    // button colors need this every tick, not just when hovering
     UpdateCtrlEnabled();
 
     // button row
@@ -735,14 +795,14 @@ if (timelineOpen)
             }
         }
     }
-    // track menu, evenly spaced rows so no loop
+    // track menu
     else if (trackMenuOpen)
     {
         trackHit = Floor((TRACK_MENU_TOP_Y + TRACK_MENU_SPACING - cY) / TRACK_MENU_SPACING);
         if (Abs(cX) > TRACK_SLOT_HIT_WIDTH / 2 || !IsInRange(trackHit, 0, MAX_TRACKS - 1))
             trackHit = -1;
     }
-    // options menu, evenly spaced grid so no loop
+    // options menu
     else if (optionsMenuOpen)
     {
         Number col = Floor(cX / OPTIONS_COL_SPACING + OPTIONS_COLS / 2);
@@ -751,7 +811,6 @@ if (timelineOpen)
             optionHit = row * OPTIONS_COLS + col;
     }
 
-    // only write on change
     if (hoveredCtrl != ctrlHit)
         hoveredCtrl = ctrlHit;
     if (hoverFlagIndex != flagHit)
@@ -857,7 +916,6 @@ void ActivateCtrl(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
             ToggleFlag(currFrame);
             break;
         case Ctrl.Record:
-            // confirm to overwrite an existing track
             if (!recording && HasRecording(player) && !confirmRecord)
             {
                 confirmRecord = true;
@@ -885,372 +943,6 @@ void ActivateCtrl(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
             confirmDelete = false;
             DeleteFocusedTrack();
             break;
-    }
-}
-
-////////////////////
-//
-// timeline flagging
-//
-////////////////////
-
-Number MAX_FLAGS: 8;
-Number SNAP_DIST: 0.0175;
-void ToggleFlag(Number frame) playervar "TL Sub : Toggle Flag"
-{
-    if (!recording && recFrames == 0)
-        return;
-
-    if (flags.Contains(frame))
-        flags = flags - frame;
-    else if (flags.Length < MAX_FLAGS)
-        flags = flags + frame;
-}
-
-rule: "add/remove flag"
-Event.OngoingPlayer
-if (timelineOpen)
-if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
-{
-    if (hoverFlagIndex != -1)
-    {
-        if (IsMeleeHeld() || IsSecondaryHeld())
-            flags = RemoveFromArrayAtIndex(flags, hoverFlagIndex);
-        else if (!recording)    
-            currFrame = Clamp(flags[hoverFlagIndex], trimStart, trimEnd);
-    }
-    else if (IsMeleeHeld() && !IsAbility1Held())
-    {
-        ToggleFlag(currFrame);
-    }
-
-    WaitUntil(!IsMeleeHeld() && !IsPrimaryHeld() && !IsSecondaryHeld(), 99999);
-}
-
-rule: "remove all flags"
-Event.OngoingPlayer
-if (timelineOpen)
-if (hoverFlagIndex != -1 || hoveredCtrl == Ctrl.AddFlag || (flags.Contains(currFrame) && IsMeleeHeld()) )
-if (IsAbility1Held())
-if (IsMeleeHeld() || IsSecondaryHeld())
-{
-    flags = [];
-    WaitUntil(!IsMeleeHeld() && !IsSecondaryHeld(), 99999);
-}
-
-rule: "create flag markers"
-{
-    for (Number i = 0; i < MAX_FLAGS; i++)
-    {
-        CreateInWorldText(
-            VisibleTo:      TimelineVisible() && local.flags.Length > Once(i) ? local : null,
-            Header:         "I",
-            Position:       UiPos(FrameToTrackX(local.flags[Once(i)]), Ui.Flags),
-            Scale:          2,
-            TextColor:      Color.Yellow,
-            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-            Clipping:       Clipping.DoNotClip,
-            Spectators:     Spectators.VisibleNever);
-    }
-}
-
-// end of each track on timeline
-rule: "create track end markers"
-{
-    for (Number i = 0; i < MAX_TRACKS; i++)
-    {
-        CreateInWorldText(
-            VisibleTo:      TimelineVisible() && TrackFrames(Once(i)) > 0 ? local : null,
-            Header:         <" I\nT<0>", Once(i) + 1>,
-            Position:       UiPos(FrameToTrackX(TrackEnd(Once(i))), Ui.TrackEnds),
-            Scale:          1,
-            TextColor:      local.focusedTrack == Once(i) ? BluePulse() : Color.White,
-            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-            Clipping:       Clipping.DoNotClip,
-            Spectators:     Spectators.VisibleNever);
-    }
-}
-
-////////////////////
-//
-// track menu
-//
-////////////////////
-
-Number TRACK_MENU_TOP_Y:   0.55;
-Number TRACK_MENU_SPACING: 0.10;
-Number TRACK_SLOT_HIT_WIDTH:   1.40;
-
-playervar Number hoveredTrack;
-playervar Number[] trackMenuTexts;
-
-playervar Boolean trackMenuCreated; // track menu texts finished creating, options menu waits on this
-
-// created hidden when the timeline opens so opening the menu is instant, destroyed when the timeline closes
-rule: "track menu"
-Event.OngoingPlayer
-if (timelineOpen)
-{
-    trackMenuTexts = [];
-
-    CreateInWorldText(
-        VisibleTo:      local.trackMenuOpen ? local : null,
-        Header:         "Select Track",
-        Position:       RenderPosOf(0, TRACK_MENU_TOP_Y + 0.15),
-        Scale:          2,
-        TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToAndPosition,
-        Clipping:       Clipping.DoNotClip,
-        Spectators:     Spectators.VisibleNever);
-    trackMenuTexts = trackMenuTexts + LastTextID();
-
-    for (Number i = 0; i < MAX_TRACKS; i++)
-    {
-        if (!timelineOpen)
-            break;
-
-        CreateInWorldText(
-            VisibleTo:      local.trackMenuOpen ? local : null,
-            Header:         <"Track <0>   <1>",  
-                                Once(i) + 1, 
-                                TrackFrames(Once(i)) > 0 
-                                    ? <"<0> <1> frames", HeroIconString(local.trackHero[Once(i)]), TrackFrames(Once(i))> 
-                                    : "Empty">,
-            Position:       RenderPosOf(0, TRACK_MENU_TOP_Y - (Once(i)) * TRACK_MENU_SPACING),
-            Scale:          1.5,
-            TextColor:      local.hoveredTrack == Once(i) ? BluePulse() : Color.White,
-            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-            Clipping:       Clipping.DoNotClip,
-            Spectators:     Spectators.VisibleNever);
-        trackMenuTexts = trackMenuTexts + LastTextID();
-        MinWait();
-    }
-
-    trackMenuCreated = true;
-
-    WaitUntil(!timelineOpen, 99999);
-
-    for (Number i = 0; i < trackMenuTexts.Length; i++)
-        DestroyInWorldText(trackMenuTexts[i]);
-
-    trackMenuTexts = [];
-    trackMenuCreated = false;
-}
-
-////////////////////
-//
-// options menu
-//
-////////////////////
-
-Number OPTIONS_COLS:        3;
-Number OPTIONS_ROWS:        4;
-Number OPTIONS_TOP_Y:       0.55;
-Number OPTIONS_ROW_SPACING: 0.15;
-Number OPTIONS_COL_SPACING: 1.20;
-Number OptionX(Number i): (i % OPTIONS_COLS - (OPTIONS_COLS - 1) / 2) * OPTIONS_COL_SPACING;
-Number OptionY(Number i): OPTIONS_TOP_Y - Floor(i / OPTIONS_COLS) * OPTIONS_ROW_SPACING;
-
-playervar Boolean optionsMenuOpen;
-playervar Number hoveredOption;     // option index (row * OPTIONS_COLS + col)
-playervar Number[] optionsMenuTexts;
-
-rule: "options menu"
-Event.OngoingPlayer
-if (timelineOpen)
-if (trackMenuCreated)
-{
-    optionsMenuTexts = [];
-
-    CreateInWorldText(
-        VisibleTo:      local.optionsMenuOpen ? local : null,
-        Header:         "Options",
-        Position:       RenderPosOf(0, OPTIONS_TOP_Y + 0.15),
-        Scale:          2,
-        TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToAndPosition,
-        Clipping:       Clipping.DoNotClip,
-        Spectators:     Spectators.VisibleNever);
-    optionsMenuTexts = optionsMenuTexts + LastTextID();
-
-    for (Number i = 0; i < OPTIONS_COLS * OPTIONS_ROWS; i++)
-    {
-        if (!timelineOpen)
-            break;
-
-        // todo: replace placeholders
-        CreateInWorldText(
-            VisibleTo:      local.optionsMenuOpen ? local : null,
-            Header:         <"Option <0>", Once(i) + 1>,
-            Position:       RenderPosOf(OptionX(Once(i)), OptionY(Once(i))),
-            Scale:          1.5,
-            TextColor:      local.hoveredOption == Once(i) ? BluePulse() : Color.White,
-            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-            Clipping:       Clipping.DoNotClip,
-            Spectators:     Spectators.VisibleNever);
-        optionsMenuTexts = optionsMenuTexts + LastTextID();
-        MinWait();
-    }
-
-    WaitUntil(!timelineOpen, 99999);
-
-    for (Number i = 0; i < optionsMenuTexts.Length; i++)
-        DestroyInWorldText(optionsMenuTexts[i]);
-
-    optionsMenuTexts = [];
-}
-
-////////////////////
-//
-// drag handling
-//
-////////////////////
-
-rule: "drag"
-Event.OngoingPlayer
-if (IsPrimaryHeld())
-if (dragTarget != Drag.None)
-{
-    Number snapFrame = -1;
-    for (Number i = 0; i < flags.Length; i++)
-    {
-        if (Abs(FrameToTrackX(flags[i], player) - CursorX(player)) < SNAP_DIST)
-        {
-            snapFrame = flags[i];
-            break;
-        }
-    }
-
-    switch (dragTarget)
-    {
-        case Drag.Seeker:
-            if (snapFrame != -1)
-                currFrame = Clamp(snapFrame, trimStart, trimEnd);
-            else
-                currFrame = Clamp(TrackXToFrame(CursorX(player), player), trimStart, trimEnd);
-
-            break;
-
-        case Drag.LHandle:
-            if (snapFrame != -1 && snapFrame <= trimEnd)
-                trimStart = snapFrame;
-            else
-                trimStart = Clamp(TrackXToFrame(CursorX(player), player), 0, trimEnd);
-
-            if (currFrame < trimStart)
-            {
-                StopAll();
-                currFrame = trimStart;
-            }
-
-            break;
-
-        case Drag.RHandle:
-            if (snapFrame != -1 && snapFrame >= trimStart)
-                trimEnd = snapFrame;
-            else
-                trimEnd = Clamp(TrackXToFrame(CursorX(player), player), trimStart, timelineFrames);
-
-            if (currFrame > trimEnd)
-            {
-                StopAll();
-                currFrame = trimEnd;
-            }
-
-            break;
-    }
-
-    MinWait();
-    LoopIfConditionIsTrue();
-}
-
-rule: "grab lhandle"
-Event.OngoingPlayer
-if (timelineOpen)
-if (!recording)
-if (timelineFrames > 0)
-if (IsPrimaryHeld())
-if (IsInRange(CursorX(player), TrimStartX(player) - HANDLE_HALF_W, TrimStartX(player) + HANDLE_HALF_W)
-    && (TrimEndX(player) - TrimStartX(player)) > HANDLE_MIN_GAP) // prevent grabbing left handle if right handle is overlapping
-if (IsInRange(CursorY(player), HANDLE_Y_MIN, HANDLE_Y_MAX))
-if (!IsDragging(player))
-{
-    dragTarget = Drag.LHandle;
-
-    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
-
-    dragTarget = Drag.None;
-}
-
-rule: "grab rhandle"
-Event.OngoingPlayer
-if (timelineOpen)
-if (!recording)
-if (timelineFrames > 0)
-if (IsPrimaryHeld())
-if (IsInRange(CursorX(player), TrimEndX(player) - HANDLE_HALF_W, TrimEndX(player) + HANDLE_HALF_W)
-    || (TrimEndX(player) - TrimStartX(player)) < HANDLE_MIN_GAP) // grab right handle if its overlapping the left handle
-if (IsInRange(CursorY(player), HANDLE_Y_MIN, HANDLE_Y_MAX))
-if (!IsDragging(player))
-{
-    dragTarget = Drag.RHandle;
-
-    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
-
-    dragTarget = Drag.None;
-}
-
-rule: "grab seeker"
-Event.OngoingPlayer
-if (timelineOpen)
-if (!recording)
-if (timelineFrames > 0)
-if (IsPrimaryHeld())
-if (Abs(CursorX(player)) < TRACK_HALF)
-if (IsInRange(CursorY(player), SEEKER_Y_MIN, SEEKER_Y_MAX))
-if (!IsDragging(player))
-{
-    dragTarget = Drag.Seeker;
-
-    if (playbackActive)
-        StopAll();
-
-    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
-
-    dragTarget = Drag.None;
-}
-
-////////////////////
-//
-// keybinds
-//
-////////////////////
-
-rule: "open menu toggle"
-Event.OngoingPlayer
-if (IsInteractHeld())
-{
-    WaitIfTrue(0.2);
-    hoveredCtrl = Ctrl.Invalid;
-
-    timelineOpen = !timelineOpen;
-    if (timelineOpen)
-    {
-        facing = Facing();
-        facingX = HorizontalAngleFromDirection(facing);
-        facingY = VerticalAngleFromDirection(facing);
-        SetAimSpeed(player, 10);
-        SetMoveSpeed(player, 0);
-        SetStatus(player, null, Status.Stunned, 0.01); // small stun to force player to stop holding abilities
-        DisallowAllButtons();
-    }
-    else
-    {
-        trackMenuOpen = false;
-        optionsMenuOpen = false;
-        SetAimSpeed(player, 100);
-        SetMoveSpeed(player, 100);
-        AllowAllButtons();
     }
 }
 
@@ -1334,22 +1026,6 @@ if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
     }
 }
 
-Number SCRUB_SECONDS: 1;
-Number SCRUB_FRAMES:  Near(SCRUB_SECONDS / delta);
-rule: "scrub keybind"
-Event.OngoingPlayer
-if (timelineOpen)
-if (!recording)
-if (!IsDragging(player))
-if (!IsAbility1Held())
-if (Abs(ThrottleX()) > 0.5)
-{
-    currFrame = Clamp(currFrame + (ThrottleX() > 0 ? -SCRUB_FRAMES : SCRUB_FRAMES), trimStart, trimEnd);
-
-    WaitIfTrue(0.125);
-    LoopIfConditionIsTrue();
-}
-
 playervar Number recordBindCount;
 playervar Number lastRecordPress;
 rule: "recording r x5 keybind"
@@ -1368,6 +1044,23 @@ if (IsReloadHeld())
         recordBindCount = 0;
         async! ToggleRecording();
     }
+}
+
+
+Number SCRUB_SECONDS: 1;
+Number SCRUB_FRAMES:  Near(SCRUB_SECONDS / delta);
+rule: "scrub keybind"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!recording)
+if (!IsDragging(player))
+if (!IsAbility1Held())
+if (Abs(ThrottleX()) > 0.5)
+{
+    currFrame = Clamp(currFrame + (ThrottleX() > 0 ? -SCRUB_FRAMES : SCRUB_FRAMES), trimStart, trimEnd);
+
+    WaitIfTrue(0.125);
+    LoopIfConditionIsTrue();
 }
 
 rule: "flag jump keybind"
@@ -1392,4 +1085,318 @@ if (Abs(ThrottleX()) > 0.5)
         currFrame = ThrottleX() > 0 ? trimStart : trimEnd;
 
     WaitUntil(Abs(ThrottleX()) < 0.5 || !IsAbility1Held(), 99999);
+}
+
+////////////////////
+//
+// timeline flagging
+//
+////////////////////
+
+Number MAX_FLAGS: 8;
+Number SNAP_DIST: 0.0175;
+void ToggleFlag(Number frame) playervar "TL Sub : Toggle Flag"
+{
+    if (!recording && recFrames == 0)
+        return;
+
+    if (flags.Contains(frame))
+        flags = flags - frame;
+    else if (flags.Length < MAX_FLAGS)
+        flags = flags + frame;
+}
+
+rule: "create flag markers"
+{
+    for (Number i = 0; i < MAX_FLAGS; i++)
+    {
+        CreateInWorldText(
+            VisibleTo:      TimelineVisible() && local.flags.Length > Once(i) ? local : null,
+            Header:         "I",
+            Position:       UiPos(FrameToTrackX(local.flags[Once(i)]), Ui.Flags),
+            Scale:          2,
+            TextColor:      Color.Yellow,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+    }
+}
+
+rule: "add/remove flag"
+Event.OngoingPlayer
+if (timelineOpen)
+if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
+{
+    if (hoverFlagIndex != -1)
+    {
+        if (IsMeleeHeld() || IsSecondaryHeld())
+            flags = RemoveFromArrayAtIndex(flags, hoverFlagIndex);
+        else if (!recording)
+            currFrame = Clamp(flags[hoverFlagIndex], trimStart, trimEnd);
+    }
+    else if (IsMeleeHeld() && !IsAbility1Held())
+    {
+        ToggleFlag(currFrame);
+    }
+
+    WaitUntil(!IsMeleeHeld() && !IsPrimaryHeld() && !IsSecondaryHeld(), 99999);
+}
+
+rule: "remove all flags"
+Event.OngoingPlayer
+if (timelineOpen)
+if (hoverFlagIndex != -1 || hoveredCtrl == Ctrl.AddFlag || (flags.Contains(currFrame) && IsMeleeHeld()) )
+if (IsAbility1Held())
+if (IsMeleeHeld() || IsSecondaryHeld())
+{
+    flags = [];
+    WaitUntil(!IsMeleeHeld() && !IsSecondaryHeld(), 99999);
+}
+
+////////////////////
+//
+// drag handling
+//
+////////////////////
+
+rule: "grab lhandle"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!recording)
+if (timelineFrames > 0)
+if (IsPrimaryHeld())
+if (IsInRange(CursorX(player), TrimStartX(player) - HANDLE_HALF_W, TrimStartX(player) + HANDLE_HALF_W)
+    && (TrimEndX(player) - TrimStartX(player)) > HANDLE_MIN_GAP) // prevent grabbing left handle if right handle is overlapping
+if (IsInRange(CursorY(player), HANDLE_Y_MIN, HANDLE_Y_MAX))
+if (!IsDragging(player))
+{
+    dragTarget = Drag.LHandle;
+
+    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
+
+    dragTarget = Drag.None;
+}
+
+rule: "grab rhandle"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!recording)
+if (timelineFrames > 0)
+if (IsPrimaryHeld())
+if (IsInRange(CursorX(player), TrimEndX(player) - HANDLE_HALF_W, TrimEndX(player) + HANDLE_HALF_W)
+    || (TrimEndX(player) - TrimStartX(player)) < HANDLE_MIN_GAP) // grab right handle if its overlapping the left handle
+if (IsInRange(CursorY(player), HANDLE_Y_MIN, HANDLE_Y_MAX))
+if (!IsDragging(player))
+{
+    dragTarget = Drag.RHandle;
+
+    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
+
+    dragTarget = Drag.None;
+}
+
+rule: "grab seeker"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!recording)
+if (timelineFrames > 0)
+if (IsPrimaryHeld())
+if (Abs(CursorX(player)) < TRACK_HALF)
+if (IsInRange(CursorY(player), SEEKER_Y_MIN, SEEKER_Y_MAX))
+if (!IsDragging(player))
+{
+    dragTarget = Drag.Seeker;
+
+    if (playbackActive)
+        StopAll();
+
+    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
+
+    dragTarget = Drag.None;
+}
+
+rule: "drag"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+if (dragTarget != Drag.None)
+{
+    Number snapFrame = -1;
+    for (Number i = 0; i < flags.Length; i++)
+    {
+        if (Abs(FrameToTrackX(flags[i], player) - CursorX(player)) < SNAP_DIST)
+        {
+            snapFrame = flags[i];
+            break;
+        }
+    }
+
+    switch (dragTarget)
+    {
+        case Drag.Seeker:
+            if (snapFrame != -1)
+                currFrame = Clamp(snapFrame, trimStart, trimEnd);
+            else
+                currFrame = Clamp(TrackXToFrame(CursorX(player), player), trimStart, trimEnd);
+
+            break;
+
+        case Drag.LHandle:
+            if (snapFrame != -1 && snapFrame <= trimEnd)
+                trimStart = snapFrame;
+            else
+                trimStart = Clamp(TrackXToFrame(CursorX(player), player), 0, trimEnd);
+
+            if (currFrame < trimStart)
+            {
+                StopAll();
+                currFrame = trimStart;
+            }
+
+            break;
+
+        case Drag.RHandle:
+            if (snapFrame != -1 && snapFrame >= trimStart)
+                trimEnd = snapFrame;
+            else
+                trimEnd = Clamp(TrackXToFrame(CursorX(player), player), trimStart, timelineFrames);
+
+            if (currFrame > trimEnd)
+            {
+                StopAll();
+                currFrame = trimEnd;
+            }
+
+            break;
+    }
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+////////////////////
+//
+// track menu
+//
+////////////////////
+
+Number TRACK_MENU_TOP_Y:   0.55;
+Number TRACK_MENU_SPACING: 0.10;
+Number TRACK_SLOT_HIT_WIDTH:   1.40;
+
+playervar Number hoveredTrack;
+playervar Number[] trackMenuTexts;
+
+playervar Boolean trackMenuCreated;
+
+rule: "track menu"
+Event.OngoingPlayer
+if (timelineOpen)
+{
+    trackMenuTexts = [];
+
+    CreateInWorldText(
+        VisibleTo:      local.trackMenuOpen ? local : null,
+        Header:         "Select Track",
+        Position:       RenderPosOf(0, TRACK_MENU_TOP_Y + 0.15),
+        Scale:          2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    trackMenuTexts = trackMenuTexts + LastTextID();
+
+    for (Number i = 0; i < MAX_TRACKS; i++)
+    {
+        if (!timelineOpen)
+            break;
+
+        CreateInWorldText(
+            VisibleTo:      local.trackMenuOpen ? local : null,
+            Header:         <"Track <0>   <1>",
+                                Once(i) + 1,
+                                TrackFrames(Once(i)) > 0
+                                    ? <"<0> <1> frames", HeroIconString(local.trackHero[Once(i)]), TrackFrames(Once(i))>
+                                    : "Empty">,
+            Position:       RenderPosOf(0, TRACK_MENU_TOP_Y - (Once(i)) * TRACK_MENU_SPACING),
+            Scale:          1.5,
+            TextColor:      local.hoveredTrack == Once(i) ? BluePulse() : Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        trackMenuTexts = trackMenuTexts + LastTextID();
+        MinWait();
+    }
+
+    trackMenuCreated = true;
+
+    WaitUntil(!timelineOpen, 99999);
+
+    for (Number i = 0; i < trackMenuTexts.Length; i++)
+        DestroyInWorldText(trackMenuTexts[i]);
+
+    trackMenuTexts = [];
+    trackMenuCreated = false;
+}
+
+////////////////////
+//
+// options menu
+//
+////////////////////
+
+Number OPTIONS_COLS:        3;
+Number OPTIONS_ROWS:        4;
+Number OPTIONS_TOP_Y:       0.55;
+Number OPTIONS_ROW_SPACING: 0.15;
+Number OPTIONS_COL_SPACING: 1.20;
+Number OptionX(Number i): (i % OPTIONS_COLS - (OPTIONS_COLS - 1) / 2) * OPTIONS_COL_SPACING;
+Number OptionY(Number i): OPTIONS_TOP_Y - Floor(i / OPTIONS_COLS) * OPTIONS_ROW_SPACING;
+
+playervar Boolean optionsMenuOpen;
+playervar Number hoveredOption;     // option index (row * OPTIONS_COLS + col)
+playervar Number[] optionsMenuTexts;
+
+rule: "options menu"
+Event.OngoingPlayer
+if (timelineOpen)
+if (trackMenuCreated)
+{
+    optionsMenuTexts = [];
+
+    CreateInWorldText(
+        VisibleTo:      local.optionsMenuOpen ? local : null,
+        Header:         "Options",
+        Position:       RenderPosOf(0, OPTIONS_TOP_Y + 0.15),
+        Scale:          2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    optionsMenuTexts = optionsMenuTexts + LastTextID();
+
+    for (Number i = 0; i < OPTIONS_COLS * OPTIONS_ROWS; i++)
+    {
+        if (!timelineOpen)
+            break;
+
+        // todo: replace placeholders
+        CreateInWorldText(
+            VisibleTo:      local.optionsMenuOpen ? local : null,
+            Header:         <"Option <0>", Once(i) + 1>,
+            Position:       RenderPosOf(OptionX(Once(i)), OptionY(Once(i))),
+            Scale:          1.5,
+            TextColor:      local.hoveredOption == Once(i) ? BluePulse() : Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        optionsMenuTexts = optionsMenuTexts + LastTextID();
+        MinWait();
+    }
+
+    WaitUntil(!timelineOpen, 99999);
+
+    for (Number i = 0; i < optionsMenuTexts.Length; i++)
+        DestroyInWorldText(optionsMenuTexts[i]);
+
+    optionsMenuTexts = [];
 }
