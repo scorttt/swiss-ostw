@@ -1,0 +1,35 @@
+import "main.del";
+
+Number delta: 0.016; // length of each "frame" as wait durations. must be a multiple of 0.016 TODO: make this player adjustable as a framerate option: 1/delta
+
+playervar Boolean playbackActive;   // any form of playback bool
+playervar Boolean playing;          // normal playback bool
+playervar Boolean rewinding;        // rewind bool
+playervar Boolean fastForwarding;   // fast forward bool
+playervar Boolean recording;        // recording bool
+playervar Number framesToSkip;      // how many frames to skip per tick during rewind/fast forward
+
+playervar Number timelineFrames;    // shared timeline length, end frame of the longest track
+playervar Number recStart;          // frame the focused track starts at on the shared timeline
+playervar Number recFrames;         // amount of frames in the focused track
+playervar Number trimStart;         // trimmed playback start frame, shared by all tracks
+playervar Number trimEnd;           // trimmed playback end frame, shared by all tracks
+playervar Number currFrame;
+playervar Number[] flags;
+
+Boolean HasRecording(Player p = local): p.recFrames > 0;        // focused track has frames
+Boolean TimelineHasFrames(Player p = local): p.timelineFrames > 0; // any track has frames
+
+rule: "init state player"
+Event.OnPlayerJoin
+{
+    flags = [];
+}
+
+void StopAll() playervar "stop all playback"
+{
+    playbackActive = false;
+    playing = false;
+    fastForwarding = false;
+    rewinding = false;
+}

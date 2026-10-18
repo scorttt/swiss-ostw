@@ -1,0 +1,33 @@
+import "state.del";
+rule: "play"
+Event.OngoingPlayer
+if (playing)
+if (currFrame < trimEnd)
+{
+    currFrame++;
+
+    if (currFrame >= trimEnd)
+    {
+        StopAll();
+
+        if (currFrame > trimEnd)
+            currFrame = trimEnd;
+    }
+
+    MinWait(); // each frame lasts for 0.016s, so increment by 1 every 0.016s
+    LoopIfConditionIsTrue();
+}
+
+rule: "fast forward / rewind loop"
+Event.OngoingPlayer
+if (rewinding || fastForwarding)
+if (rewinding ? currFrame > trimStart : currFrame < trimEnd)
+{
+    currFrame = Clamp(currFrame + (fastForwarding ? framesToSkip : -framesToSkip), trimStart, trimEnd);
+
+    if (rewinding ? currFrame <= trimStart : currFrame >= trimEnd)
+        StopAll();
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}

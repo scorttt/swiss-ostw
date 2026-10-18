@@ -1,0 +1,71 @@
+import "main.del";
+
+Number MAX_TRACKS: 12;
+
+// the focused track lives in the working state vars (recStart, recFrames, flags), the rest are saved here
+// trims and the playhead are shared by all tracks
+playervar Number focusedTrack;
+playervar Number[] trackStart;
+playervar Number[] trackFrames;
+playervar Number[] trackFlags;
+playervar Hero[] trackHero;
+
+Number TrackStart(Number t, Player p = local):  t == p.focusedTrack ? p.recStart : p.trackStart[t];
+Number TrackFrames(Number t, Player p = local): t == p.focusedTrack ? p.recFrames : p.trackFrames[t];
+Number TrackEnd(Number t, Player p = local):    TrackStart(t, p) + TrackFrames(t, p);
+
+void SaveTrack(in Number t)
+{
+    trackStart[t] = recStart;
+    trackFrames[t] = recFrames;
+
+    for (Number i = 0; i < MAX_FLAGS; i++)
+        trackFlags[t * MAX_FLAGS + i] = i < flags.Length ? flags[i] + 1 : 0;
+}
+
+void LoadTrack(in Number t)
+{
+    recStart = trackStart[t];
+    recFrames = trackFrames[t];
+    flags = trackFlags.Slice(t * MAX_FLAGS, MAX_FLAGS).Filter(f => f > 0).Map(f => f - 1);
+}
+void UpdateTimelineFrames() playervar "Track Sub : Update Timeline Frames"
+{
+    timelineFrames = recStart + recFrames;
+
+    for (Number i = 0; i < MAX_TRACKS; i++)
+        if (i != focusedTrack)
+            timelineFrames = Max(timelineFrames, trackStart[i] + trackFrames[i]);
+}
+
+void ClampToTimeline() playervar "Track Sub : Timeline Clamp"
+{
+    trimStart = Clamp(trimStart, 0, timelineFrames);
+    trimEnd = Clamp(trimEnd, trimStart, timelineFrames);
+    currFrame = Clamp(currFrame, trimStart, trimEnd);
+}
+
+void SelectTrack(Number t) playervar "Track Sub : Select Track"
+{
+    trackMenuOpen = false;
+
+    if (t == focusedTrack)
+        return;
+
+    StopAll();
+    SaveTrack(focusedTrack);
+    focusedTrack = t;
+    LoadTrack(t);
+}
+
+void DeleteFocusedTrack() playervar "Track Sub : Delete Focused Track"
+{
+    StopAll();
+    flags = [];
+    recStart = 0;
+    recFrames = 0;
+
+    // bots stay until their track is deleted, despawn here once playback exists
+    UpdateTimelineFrames();
+    ClampToTimeline();
+}

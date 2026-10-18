@@ -4,7 +4,7 @@
     "Map Rotation": "After A Game",
     "Max Team 1 Players": 1,
     "Max Team 2 Players": 0,
-    "Max Spectators": 2,
+    "Max Spectators": 0,
     "Return To Lobby": "Never"
   },
   "Modes": {
@@ -14,6 +14,11 @@
       "Game Mode Start": "Immediately"
     },
     "Skirmish": {"Enabled Maps": ["Workshop Chamber"]}
+  },
+  "Heroes":{
+      "General": {
+          "Ability Cooldown Time": 0
+      }
   },
   "Extensions": { 
     "Beam Effects": true,
@@ -27,6 +32,6 @@
     "Play More Effects": true, 
     "Spawn More Dummy Bots": true
   },
-  "Mode Name": "Swiss",
-  "Description": "Provides a slew of movie making features for content creators\nCode: TBD\nCreated by scort#11221"
+  "Mode Name": "Swiss MVM",
+  "Description": "Adds a slew of movie making features for content creators\nCode: F7TRY, FW3NK, AS0043\nSupport me: https://scort.cc/donate\n1.0.0 | MM DD YYYY"
 }

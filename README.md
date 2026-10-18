@@ -59,7 +59,8 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
 - Swiss isn't intended to be used in other custom games, results will vary if you merge Swiss with another custom game
 - Viewing an Overwatch replay with Swiss will not playback any Swiss camera pathing, you will need to find a different solution; there are Autohotkey scripts available to get similar results within the viewer
 - It is not possible for bots to use skins
-- Keybinds are intended to be used with default keybinds for movement (WASD), Interact (F), Melee (V), Primary/Secondary Fire (LMB/RMB), Ability Buttons (LShift, E), Crouch (LCtrl), and Ultimate (Q). It's not possible for keybinds to be set to an individual key or be setting agnostic
+- Keybinds are intended to be used with default keybinds for movement (WASD), Interact (F), Melee (V), Reload (R), Primary/Secondary Fire (LMB/RMB), Ability Buttons (LShift, E), Crouch (LCtrl), and Ultimate (Q). It's not possible for keybinds to be set to an individual key or be setting agnostic
+- Infinite ammo and 0% cooldown is enabled to get around hero inconsistencies in workshop (see https://workshop.codes/wiki/articles/ow2-workshop-changesbugs). Certain hero abilities like Tracer recall will always have a cooldown.
 
 ## Compiling
 My [`macros`](https://github.com/scorttt/macros-ostw) repo must be placed in a folder named `macros-ostw` above Swiss' parent directory. The folder structure should appear as follows: 

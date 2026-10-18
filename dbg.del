@@ -20,7 +20,7 @@ if (player == host)
     CreateHudText(host, null, <"CF: <0>\nTrim: <1> - <2>\nTF: <3>\nTrimX: <4> - <5>",
                                     currFrame,
                                     trimStart, trimEnd,
-                                    totalFrames,
+                                    timelineFrames,
                                     TrimStartX(player), TrimEndX(player)>, null, Location.Right, 0.7);
 
     // playback

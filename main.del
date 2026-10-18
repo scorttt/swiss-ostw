@@ -3,9 +3,23 @@ import "settings.json";
 
 import "camera.del";
 import "timeline.del";
+import "state.del";
+import "recording.del";
+import "playback.del";
+import "tracks.del";
 import "dbg.del";
 
 rule: "Initial Global"
 {
     PauseMatchTime();
+}
+
+rule: "give ult"
+Event.OngoingPlayer
+if (IsAlive())
+if (UltimateChargePercent() != 100)
+{
+    SetUltimateCharge(player, 100);
+    MinWait();
+    LoopIfConditionIsTrue();
 }

@@ -1,0 +1,50 @@
+import "state.del";
+
+void StartRecording() playervar "Rec Sub : Start Recording"
+{
+    // focused track restarts at trimStart, other tracks are untouched
+    StopAll();
+    trackMenuOpen = false;
+    optionsMenuOpen = false;
+    trackHero[focusedTrack] = HeroOf(player);
+    flags = [];
+    recStart = trimStart;
+    recFrames = 0;
+    currFrame = trimStart;
+    UpdateTimelineFrames();
+    ClampToTimeline();
+    recording = true;
+}
+
+void StopRecording() playervar "Rec Sub : Stop Recording"
+{
+    recording = false;
+    currFrame = recStart;
+
+    SmallMessage(player, <"Recording saved! <0> duration, <1> frames", FormattedFrameToSec(recFrames), recFrames>);
+}
+
+rule: "recording"
+Event.OngoingPlayer
+if (recording)
+{
+    recFrames++;
+    currFrame = recStart + recFrames;
+
+    // grow the timeline and playback range to fit the recording
+    if (currFrame > timelineFrames)
+        timelineFrames = currFrame;
+    if (currFrame > trimEnd)
+        trimEnd = currFrame;
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+void ToggleRecording() playervar "Rec Sub : Toggle Recording"
+{
+    if (recording)
+        StopRecording();
+    else
+        StartRecording();
+}
