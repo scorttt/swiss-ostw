@@ -7,8 +7,8 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
     - [x] Controls
         - [x] Play/Pause/Stop
         - [x] Fast Forward/Rewind
-        - [x] Jump to Start/End
         - [x] Scrub frame by frame
+        - [x] Scrub by the second
         - [x] Keybinds
         - [x] Flags
             - Similar to how osu! handles flags with their editor, flag specific frames with Melee and quickly jump around them in a recording with Shift + A/D
@@ -43,10 +43,12 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
         - Overwatch replays can take up to 5 minutes to appear
 
 ## How do I import / export my recordings?
+
+Before doing anything, ensure that `Enable Workshop Inspector` and `Enable Workshop Inspector Log File` settings are turned **ON** in `Options -> Gameplay -> General`. They are turned off by default
+
 ### Exporting
-0. Before exporting, ensure that `Enable Workshop Inspector` and `Enable Workshop Inspector Log File` settings are turned **ON** in `Gameplay -> General` 
 1. Open the options menu in Swiss, click on the "Export to Inspector" button. Exports are not automatic, and must be done manually.
-2. After export, open the Workshop Inspector by pressing Esc -> Open Workshop Inspector -> Click on the `(X)` button at the bottom of the menu and save the copied contents to a file
+2. After export, open the Workshop Inspector by pressing Esc -> Open Workshop Inspector -> Click on the `(X)` button at the bottom of the menu to save your recording to your clipboard that can then be saved to a file or whichever medium you choose
 
 ### Importing 
 1. Before loading into Swiss, copy the file contents of an export. Ensure that the map of the export is enabled in the custom game lobby in `Settings -> Maps`, the imported recording will give you a warning in-game if the incorrect map is loaded 
@@ -55,21 +57,46 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
 
 ## Notes and Limitations
 - Menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and ingame language is not set to Traditional/Simplified Chinese, Japanese, Korean, Thai, or Russian
-- Intended for use with only one human player, using multiple human players in a lobby is untested and may not work correctly
+- Swiss is designed to be used by only one human player in a lobby, not with multiple human players, results will vary with more than one human player
 - Swiss isn't intended to be used in other custom games, results will vary if you merge Swiss with another custom game
 - Viewing an Overwatch replay with Swiss will not playback any Swiss camera pathing, you will need to find a different solution; there are Autohotkey scripts available to get similar results within the viewer
-- It is not possible for bots to use skins
-- Keybinds are intended to be used with default keybinds for movement (WASD), Interact (F), Melee (V), Reload (R), Primary/Secondary Fire (LMB/RMB), Ability Buttons (LShift, E), Crouch (LCtrl), and Ultimate (Q). It's not possible for keybinds to be set to an individual key or be setting agnostic
-- Infinite ammo and 0% cooldown is enabled to get around hero inconsistencies in workshop (see https://workshop.codes/wiki/articles/ow2-workshop-changesbugs). Certain hero abilities like Tracer recall will always have a cooldown.
+- It is not possible for bots to use skins. For this reason, skins are disabled for consistency and allows for more bots to be spawned.
+- Swiss keybinds were set with the intention that the default keybinds are used, such as the keys for movement (WASD), interact (F), melee (V), reload (R), primary/secondary fire (LMB/RMB), ability buttons (LShift, E), crouch (LCtrl), and ultimate (Q). It's not possible for keybinds to be set to an individual key or be setting agnostic
+- Instant ult and 0% cooldown is enabled to get around hero inconsistencies in workshop (see https://workshop.codes/wiki/articles/ow2-workshop-changesbugs). Certain abilities like Tracer recall will always have a cooldown.
 
 ## Compiling
-My [`macros`](https://github.com/scorttt/macros-ostw) repo must be placed in a folder named `macros-ostw` above Swiss' parent directory. The folder structure should appear as follows: 
-```
-macros-ostw
-    ├ main.del
-    └ other macro files
 
-swiss-ostw
-    ├ main.del
-    └ other swiss files
+### Prerequisites
+- [OSTW](https://github.com/ItsDeltin/Overwatch-Script-To-Workshop/wiki/Getting-Started) installed and set-up correctly
+- [`macros-ostw`](https://github.com/scorttt/macros-ostw) repository cloned adjacent to Swiss' parent directory
+
+Expected folder structure:
+
+```
+scripts/
+├── macros-ostw/
+│   ├── main.del
+│   └── ...
+└── yatffa-ostw/
+    ├── main.del
+    └── ...
+```
+With Swiss' `main.del` open and focused in VSCode, press `Ctrl+Alt+C` to copy the compiled workshop code into your clipboard that can then be pasted into Overwatch.
+Please note that Flatpak/Snap builds of VSCode do not share the clipboard with other applications, use VSCode's output window instead; otherwise you'll have to figure something else out for a workaround.
+
+### Linux
+
+If you're using a VSCode fork such as VSCodium or Code OSS, you'll have to install the extension manually since OSTW is not listed on the Open VSX registry, you can download the VSIX from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=Deltin.overwatch-script-to-workshop) directly and install it manually.
+
+You may also need to set execute permissions on the language server binary:
+
+```bash
+# adjust the path and version number to match your install
+chmod 755 ~/.config/Code\ -\ OSS/User/globalStorage/deltin.overwatch-script-to-workshop/Server/v3.2.3-linux-x64/Deltinteger
+```
+
+In the OSTW extension settings, set the Deltinteger path with quotes:
+
+```
+"/home/user/.config/Code - OSS/User/globalStorage/deltin.overwatch-script-to-workshop/Server/v3.2.3-linux-x64/Deltinteger"
 ```

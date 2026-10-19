@@ -11,7 +11,8 @@
     "All": {
       "Respawn Time Scalar": 0,
       "Hero Limit": "Off",
-      "Game Mode Start": "Immediately"
+      "Game Mode Start": "Immediately",
+      "Skins": "Off"
     },
     "Skirmish": {"Enabled Maps": ["Workshop Chamber"]}
   },
@@ -33,5 +34,5 @@
     "Spawn More Dummy Bots": true
   },
   "Mode Name": "Swiss MVM",
-  "Description": "Adds a slew of movie making features for content creators\nCode: F7TRY, FW3NK, AS0043\nSupport me: https://scort.cc/donate\n1.0.0 | MM DD YYYY"
+  "Description": "Adds a slew of movie making features for content creators\nCode: F7TRY, FW3NK, AC3MY\nSupport me: https://scort.cc/donate\n1.0.0 | MM DD YYYY"
 }
