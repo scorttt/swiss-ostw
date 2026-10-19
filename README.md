@@ -77,7 +77,7 @@ scripts/
 ├── macros-ostw/
 │   ├── main.del
 │   └── ...
-└── yatffa-ostw/
+└── swiss-ostw/
     ├── main.del
     └── ...
 ```
