@@ -614,6 +614,7 @@ if (IsInteractHeld())
     }
     else
     {
+        canUseKeybinds = false;
         trackMenuOpen = false;
         optionsMenuOpen = false;
         SetAimSpeed(player, 100);
@@ -623,6 +624,17 @@ if (IsInteractHeld())
         if (recordArmed)
             StartRecording();
     }
+}
+
+playervar Boolean canUseKeybinds;
+rule: "allow tl keybinds"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!canUseKeybinds)
+if (!IsPrimaryHeld() && !IsSecondaryHeld() && !IsJumpHeld() && !IsCrouchHeld() && !IsMeleeHeld()
+    && !IsAbility1Held() && !IsAbility2Held() && !IsUltimateHeld() && Abs(ThrottleX()) <= 0.5)
+{
+    canUseKeybinds = true;
 }
 
 void StepAnim(Boolean closing) playervar "TL Sub : Step Anim"
@@ -945,7 +957,7 @@ void ActivateCtrl(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
 rule: "tl control keybinds"
 Event.OngoingPlayer
 if (timelineOpen)
-if (!animating)
+if (canUseKeybinds)
 if (!IsDragging(player))
 if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
 {
@@ -1045,6 +1057,7 @@ if (IsReloadHeld())
 rule: "scrub keybind"
 Event.OngoingPlayer
 if (timelineOpen)
+if (canUseKeybinds)
 if (!recording)
 if (!IsDragging(player))
 if (!IsAbility1Held())
@@ -1060,6 +1073,7 @@ if (Abs(ThrottleX()) > 0.5)
 rule: "flag jump keybind"
 Event.OngoingPlayer
 if (timelineOpen)
+if (canUseKeybinds)
 if (!animating)
 if (!recording)
 if (!IsDragging(player))
@@ -1134,6 +1148,7 @@ if (timelineOpen || closing)
 rule: "add/remove flag"
 Event.OngoingPlayer
 if (timelineOpen)
+if (canUseKeybinds)
 if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
 {
     if (hoverFlagIndex != -1)
@@ -1154,6 +1169,7 @@ if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
 rule: "remove all flags"
 Event.OngoingPlayer
 if (timelineOpen)
+if (canUseKeybinds)
 if (hoverFlagIndex != -1 || hoveredCtrl == Ctrl.AddFlag || (flags.Contains(currFrame) && IsMeleeHeld()) )
 if (IsAbility1Held())
 if (IsMeleeHeld() || IsSecondaryHeld())
@@ -1171,6 +1187,7 @@ if (IsMeleeHeld() || IsSecondaryHeld())
 rule: "grab lhandle"
 Event.OngoingPlayer
 if (timelineOpen)
+if (canUseKeybinds)
 if (!recording)
 if (timelineFrames > 0)
 if (IsPrimaryHeld())
@@ -1189,6 +1206,7 @@ if (!IsDragging(player))
 rule: "grab rhandle"
 Event.OngoingPlayer
 if (timelineOpen)
+if (canUseKeybinds)
 if (!recording)
 if (timelineFrames > 0)
 if (IsPrimaryHeld())
@@ -1207,6 +1225,7 @@ if (!IsDragging(player))
 rule: "grab seeker"
 Event.OngoingPlayer
 if (timelineOpen)
+if (canUseKeybinds)
 if (!recording)
 if (timelineFrames > 0)
 if (IsPrimaryHeld())
