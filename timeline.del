@@ -118,10 +118,10 @@ Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Fac
 Any CursorState(Player p = local): IsDragging(p) ? Cursor.Drag : p.hoverFlagIndex != -1 ? Cursor.FlagHover : Cursor.Default;
 
 Any RenderPosOf(Number x = 0, Number y = 0):
-    Update(EyePos(local) + 100 * (
+    EyePos(local) + 100 * (
         x * WorldVectorOf(Right(), local, LocalVector.Rotation)
       + y * Cross(Facing(local), WorldVectorOf(Left(), local, LocalVector.Rotation))
-      + 3 * Facing(local)));
+      + 3 * Facing(local));
 
 Any CtrlPos(Number | Ctrl id, Number xOffset = 0, Number yOffset = 0): RenderPosOf(CTRL_X[id] + xOffset, local.timelineCtrlYPos[id] + yOffset);
 Any UiPos(Number x, Number | Ui id, Number yOffset = 0): RenderPosOf(x, local.timelineUiYPos[id] + yOffset);
@@ -305,28 +305,19 @@ rule: "create timeline text"
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
-    // play
+    // play / pause
     CreateInWorldText(
-        VisibleTo:      TimelineVisible() && !local.playbackActive ? local : null,
-        Header:         "▶",
-        Position:       CtrlPos(Ctrl.Play),
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         local.playbackActive ? "I I" : "▶",
+        Position:       local.playbackActive
+                            ? CtrlPos(Ctrl.Pause, 0.007, -0.0075)
+                            : CtrlPos(Ctrl.Play),
         Scale:          2,
-        TextColor:      ButtonColor(Ctrl.Play),
+        TextColor:      ButtonColor(local.playbackActive ? Ctrl.Pause : Ctrl.Play),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
-    // pause
-    CreateInWorldText(
-        VisibleTo:      TimelineVisible() && local.playbackActive ? local : null,
-        Header:         "I I", // font makes it display as 2 straight vertical lines
-        Position:       CtrlPos(Ctrl.Pause, 0.007, -0.0075),
-        Scale:          1.5,
-        TextColor:      ButtonColor(Ctrl.Pause),
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-        Clipping:       Clipping.DoNotClip,
-        Spectators:     Spectators.VisibleNever);
-    
     // record
     CreateInWorldText(
         VisibleTo:      TimelineVisible() ? local : null,
@@ -337,25 +328,14 @@ rule: "create timeline text"
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
-    // record brackets
-    CreateInWorldText(
-        VisibleTo:      TimelineVisible() && local.recording ? local : null,
-        Header:         "[    ]",
-        Position:       CtrlPos(Ctrl.Record, 0, -0.0060),
-        Scale:          2,
-        TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToAndPosition,
-        Clipping:       Clipping.DoNotClip,
-        Spectators:     Spectators.VisibleNever);
-    // text recording indicator outside tl 
-    CreateInWorldText(
+    // text recording indicator outside tl
+    CreateHudText(
         VisibleTo:      local.recording && !TimelineVisible() ? local : null,
-        Header:         "Recording Player Actions",
-        Position:       RenderPosOf(0, 1.70),
-        Scale:          1.5,
+        Text:           "Recording Player Actions",
+        Location:       Location.Top,
+        SortOrder:      0,
         TextColor:      RedPulse(),
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-        Clipping:       Clipping.DoNotClip,
+        Reevaluation:   HudTextRev.VisibleToStringAndColor,
         Spectators:     Spectators.VisibleNever);
 
     // focused track
@@ -432,7 +412,7 @@ rule: "create timeline text"
         Position:       UiPos((CTRL_X[Ctrl.PrevFrame] + CTRL_X[Ctrl.NextFrame]) / 2, Ui.CurrFrame), // centered between the frame buttons
         Scale:          1,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -453,7 +433,7 @@ rule: "create timeline text"
         Position:       UiPos(CTRL_X[Ctrl.AddFlag], Ui.FlagCount),
         Scale:          1,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -496,7 +476,7 @@ rule: "create timeline text"
         Position:       UiPos(0, Ui.TimeElapsed),
         Scale:          4,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -515,20 +495,10 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      TimelineVisible() && TimelineHasFrames(local) && !local.recording ? local : null,
         Header:         "▼",
-        Position:       UiPos(TrimStartX() - HANDLE_X_OFFSET, Ui.Handles),
+        Position:       UiPos(TrimStartX(), Ui.Handles),
         Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToAndPosition,
-        Clipping:       Clipping.DoNotClip,
-        Spectators:     Spectators.VisibleNever);
-    // left handle min timestamp
-    CreateInWorldText(
-        VisibleTo:      TimelineVisible() && TimelineHasFrames(local) && !local.recording ? local : null,
-        Header:         FormattedFrameToSec(local.trimStart),
-        Position:       UiPos(TrimStartX() - HANDLE_X_OFFSET, Ui.HandleTime),
-        Scale:          0.65,
-        TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -536,20 +506,10 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      TimelineVisible() && TimelineHasFrames(local) && !local.recording ? local : null,
         Header:         "▼",
-        Position:       UiPos(TrimEndX() - HANDLE_X_OFFSET, Ui.Handles),
+        Position:       UiPos(TrimEndX(), Ui.Handles),
         Scale:          2,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToAndPosition,
-        Clipping:       Clipping.DoNotClip,
-        Spectators:     Spectators.VisibleNever);
-    // right handle max timestamp
-    CreateInWorldText(
-        VisibleTo:      TimelineVisible() && TimelineHasFrames(local) && !local.recording ? local : null,
-        Header:         FormattedFrameToSec(local.trimEnd),
-        Position:       UiPos(TrimEndX() - HANDLE_X_OFFSET, Ui.HandleTime),
-        Scale:          0.65,
-        TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -560,7 +520,7 @@ rule: "create timeline text"
         Position:       UiPos(-2.0625, Ui.FrameMult),
         Scale:          0.75,
         TextColor:      Color.White,
-        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
 
@@ -568,35 +528,55 @@ rule: "create timeline text"
     CreateInWorldText(
         VisibleTo:      local.timelineOpen ? local : null,
         Header:         ["{0}TX {1}>".Format([txCharacter, "C0000000002DD21"]), "↔", "⊙"][CursorState()],
-        Position:       RenderPosOf(
+        Position:       Update(RenderPosOf(
                             CursorX() + [ 0.07,  0,    0][CursorState()],
-                            CursorY() + [-0.14, -0.07, -0.07][CursorState()]),
+                            CursorY() + [-0.14, -0.07, -0.07][CursorState()])),
         TextColor:      Color.White,
         Scale:          2,
         Clipping:       Clipping.DoNotClip,
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor);
 }
 
-// end of each track on timeline
-rule: "create track end markers"
+Number TrackCount(): trackFrames.Filter(f => f > 0).Length - (trackFrames[focusedTrack] > 0 ? 1 : 0) + (recFrames > 0 || recording ? 1 : 0);
+
+playervar Number[] trackMarkerTexts;
+
+rule: "track end markers"
+Event.OngoingPlayer
+if (timelineOpen || closing)
 {
+    Number count! = TrackCount();
+    trackMarkerTexts = [];
+
     for (Number i! = 0; i < MAX_TRACKS; i++)
     {
-        CreateInWorldText(
-            VisibleTo:      TimelineVisible() && TrackFrames(Once(i)) > 0 ? local : null,
-            Header:         <" I\nT<0>", Once(i) + 1>,
-            Position:       UiPos(FrameToTrackX((
-                                Once(i) == local.focusedTrack 
-                                    ? local.recStart 
-                                    : local.trackStart[Once(i)]) + TrackFrames(Once(i))), Ui.TrackEnds),
-            Scale:          1,
-            TextColor:      local.focusedTrack == Once(i) && local.trackFrames.Filter(f => f > 0).Length > 0 
-                                ? BluePulse() 
-                                : Color.White,
-            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-            Clipping:       Clipping.DoNotClip,
-            Spectators:     Spectators.VisibleNever);
+        if (TrackFrames(i, player) > 0 || (i == focusedTrack && recording))
+        {
+            CreateInWorldText(
+                VisibleTo:      player,
+                Header:         <" I\nT<0>", Once(i) + 1>,
+                Position:       UiPos(FrameToTrackX((
+                                    Once(i) == local.focusedTrack
+                                        ? local.recStart
+                                        : local.trackStart[Once(i)]) + TrackFrames(Once(i))), Ui.TrackEnds),
+                Scale:          1,
+                TextColor:      local.focusedTrack == Once(i)
+                                    ? Color.White
+                                    : CustomColor(255, 255, 255, 50),
+                Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+                Clipping:       Clipping.DoNotClip,
+                Spectators:     Spectators.VisibleNever);
+            trackMarkerTexts = trackMarkerTexts + LastTextID();
+        }
     }
+
+    WaitUntil(TrackCount() != count || !(timelineOpen || closing), 99999);
+
+    for (Number i! = 0; i < trackMarkerTexts.Length; i++)
+        DestroyInWorldText(trackMarkerTexts[i]);
+
+    trackMarkerTexts = [];
+    LoopIfConditionIsTrue();
 }
 
 ////////////////////
@@ -770,6 +750,25 @@ if (timelineOpen)
     if (tipCtrl != tipHit)
         tipCtrl = tipHit;
 
+    // handle timestamp
+    Drag handleHit! = Drag.None;
+    if (dragTarget == Drag.LHandle || dragTarget == Drag.RHandle)
+        handleHit = dragTarget;
+
+    else if (!IsDragging(player) && !recording && timelineFrames > 0 && IsInRange(cY, HANDLE_Y_MIN, HANDLE_Y_MAX))
+    {
+        Boolean l! = Abs(cX - TrimStartX(player)) <= HANDLE_HALF_W;
+        Boolean r! = Abs(cX - TrimEndX(player)) <= HANDLE_HALF_W;
+
+        if (r || (l && TrimEndX(player) - TrimStartX(player) < HANDLE_MIN_GAP))
+            handleHit = Drag.RHandle;
+        else if (l)
+            handleHit = Drag.LHandle;
+    }
+
+    if (handleTip != handleHit)
+        handleTip = handleHit;
+
     // cancel confirmations when no longer hovering the button
     if (confirmDelete && ctrlHit != Ctrl.DeleteTrack)
         confirmDelete = false;
@@ -784,8 +783,31 @@ if (timelineOpen)
     hoveredTrack = -1;
     hoveredOption = -1;
     tipCtrl = -1;
+    handleTip = Drag.None;
     confirmDelete = false;
     confirmRecord = false;
+}
+
+playervar Number handleTip;
+playervar Number handleTipText;
+rule: "handle timestamp"
+Event.OngoingPlayer
+if (handleTip != Drag.None)
+{
+    CreateInWorldText(
+        VisibleTo:      player,
+        Header:         FormattedFrameToSec(local.handleTip == Drag.LHandle ? local.trimStart : local.trimEnd),
+        Position:       UiPos((local.handleTip == Drag.LHandle ? TrimStartX() : TrimEndX()) - HANDLE_X_OFFSET, Ui.HandleTime),
+        Scale:          0.65,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    handleTipText = LastTextID();
+
+    WaitUntil(handleTip == Drag.None, 99999);
+
+    DestroyInWorldText(handleTipText);
 }
 
 void ActivateCtrl(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
@@ -997,9 +1019,6 @@ if (IsReloadHeld())
     }
 }
 
-
-Number SCRUB_SECONDS: 1;
-Number SCRUB_FRAMES:  Near(SCRUB_SECONDS / delta);
 rule: "scrub keybind"
 Event.OngoingPlayer
 if (timelineOpen)
@@ -1008,8 +1027,9 @@ if (!IsDragging(player))
 if (!IsAbility1Held())
 if (Abs(ThrottleX()) > 0.5)
 {
-    currFrame = Clamp(currFrame + (ThrottleX() > 0 ? -SCRUB_FRAMES : SCRUB_FRAMES), trimStart, trimEnd);
-
+    // 20 D taps (steps?) to reach end of timeline from frame 0 regardless of length, maybe make this an option to scale with track length instead of the full recording?
+    currFrame = Clamp(currFrame + (ThrottleX() > 0 ? -1 : 1) * RoundToInteger(timelineFrames / 20, Rounding.Up), trimStart, trimEnd);
+    
     WaitIfTrue(0.125);
     LoopIfConditionIsTrue();
 }
@@ -1057,20 +1077,35 @@ void ToggleFlag(Number frame) playervar "TL Sub : Toggle Flag"
         flags = flags + frame;
 }
 
-rule: "create flag markers"
+playervar Number[] flagMarkerTexts;
+rule: "flag markers"
+Event.OngoingPlayer
+if (timelineOpen || closing)
 {
-    for (Number i! = 0; i < MAX_FLAGS; i++)
+    Number count! = flags.Length;
+    flagMarkerTexts = [];
+
+    for (Number i! = 0; i < count; i++)
     {
         CreateInWorldText(
-            VisibleTo:      TimelineVisible() && local.flags.Length > Once(i) ? local : null,
+            VisibleTo:      player,
             Header:         "I",
             Position:       UiPos(FrameToTrackX(local.flags[Once(i)]), Ui.Flags),
             Scale:          2,
             TextColor:      Color.Yellow,
-            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Reevaluation:   InworldTextRev.VisibleToAndPosition,
             Clipping:       Clipping.DoNotClip,
             Spectators:     Spectators.VisibleNever);
+        flagMarkerTexts = flagMarkerTexts + LastTextID();
     }
+
+    WaitUntil(flags.Length != count || !(timelineOpen || closing), 99999);
+
+    for (Number i! = 0; i < flagMarkerTexts.Length; i++)
+        DestroyInWorldText(flagMarkerTexts[i]);
+
+    flagMarkerTexts = [];
+    LoopIfConditionIsTrue();
 }
 
 rule: "add/remove flag"
@@ -1172,12 +1207,30 @@ if (IsPrimaryHeld())
 if (dragTarget != Drag.None)
 {
     Number snapFrame! = -1;
+    Number trackCount! = TrackCount();
+
+    // snapping applies to both trims and seeker
+    // snap to flags
     for (Number i! = 0; i < flags.Length; i++)
     {
         if (Abs(FrameToTrackX(flags[i], player) - CursorX(player)) < SNAP_DIST)
         {
             snapFrame = flags[i];
             break;
+        }
+    }
+
+    // snap to track ends
+    if (snapFrame == -1 && trackCount > 0)
+    {
+        for (Number i! = 0; i < MAX_TRACKS; i++)
+        {
+            Number end! = i == focusedTrack ? recStart + recFrames : trackStart[i] + trackFrames[i];
+            if (TrackFrames(i, player) > 0 && Abs(FrameToTrackX(end, player) - CursorX(player)) < SNAP_DIST)
+            {
+                snapFrame = end;
+                break;
+            }
         }
     }
 
@@ -1237,16 +1290,14 @@ Number TRACK_SLOT_HIT_WIDTH:   1.40;
 playervar Number hoveredTrack;
 playervar Number[] trackMenuTexts;
 
-playervar Boolean trackMenuCreated;
-
 rule: "track menu"
 Event.OngoingPlayer
-if (timelineOpen)
+if (trackMenuOpen)
 {
     trackMenuTexts = [];
 
     CreateInWorldText(
-        VisibleTo:      local.trackMenuOpen ? local : null,
+        VisibleTo:      player,
         Header:         "Select Track",
         Position:       RenderPosOf(0, TRACK_MENU_TOP_Y + 0.15),
         Scale:          2,
@@ -1258,11 +1309,11 @@ if (timelineOpen)
 
     for (Number i! = 0; i < MAX_TRACKS; i++)
     {
-        if (!timelineOpen)
+        if (!trackMenuOpen)
             break;
 
         CreateInWorldText(
-            VisibleTo:      local.trackMenuOpen ? local : null,
+            VisibleTo:      player,
             Header:         <"Track <0>   <1>",
                                 Once(i) + 1,
                                 TrackFrames(Once(i)) > 0
@@ -1278,15 +1329,12 @@ if (timelineOpen)
         MinWait();
     }
 
-    trackMenuCreated = true;
-
-    WaitUntil(!timelineOpen, 99999);
+    WaitUntil(!trackMenuOpen, 99999);
 
     for (Number i! = 0; i < trackMenuTexts.Length; i++)
         DestroyInWorldText(trackMenuTexts[i]);
 
     trackMenuTexts = [];
-    trackMenuCreated = false;
 }
 
 ////////////////////
@@ -1297,9 +1345,9 @@ if (timelineOpen)
 
 Number OPTIONS_COLS:        3;
 Number OPTIONS_ROWS:        4;
-Number OPTIONS_TOP_Y:       0.55;
-Number OPTIONS_ROW_SPACING: 0.15;
-Number OPTIONS_COL_SPACING: 1.20;
+Number OPTIONS_TOP_Y:       0.65;
+Number OPTIONS_ROW_SPACING: 0.20;
+Number OPTIONS_COL_SPACING: 0.75;
 
 playervar Boolean optionsMenuOpen;
 playervar Number hoveredOption;     // option index (row * OPTIONS_COLS + col)
@@ -1307,13 +1355,12 @@ playervar Number[] optionsMenuTexts;
 
 rule: "options menu"
 Event.OngoingPlayer
-if (timelineOpen)
-if (trackMenuCreated)
+if (optionsMenuOpen)
 {
     optionsMenuTexts = [];
 
     CreateInWorldText(
-        VisibleTo:      local.optionsMenuOpen ? local : null,
+        VisibleTo:      player,
         Header:         "Options",
         Position:       RenderPosOf(0, OPTIONS_TOP_Y + 0.15),
         Scale:          2,
@@ -1325,12 +1372,12 @@ if (trackMenuCreated)
 
     for (Number i! = 0; i < OPTIONS_COLS * OPTIONS_ROWS; i++)
     {
-        if (!timelineOpen)
+        if (!optionsMenuOpen)
             break;
 
         // todo: replace placeholders
         CreateInWorldText(
-            VisibleTo:      local.optionsMenuOpen ? local : null,
+            VisibleTo:      player,
             Header:         <"Option <0>", Once(i) + 1>,
             Position:       RenderPosOf(
                                 (Once(i) % OPTIONS_COLS - (OPTIONS_COLS - 1) / 2) * OPTIONS_COL_SPACING,
@@ -1344,7 +1391,7 @@ if (trackMenuCreated)
         MinWait();
     }
 
-    WaitUntil(!timelineOpen, 99999);
+    WaitUntil(!optionsMenuOpen, 99999);
 
     for (Number i! = 0; i < optionsMenuTexts.Length; i++)
         DestroyInWorldText(optionsMenuTexts[i]);
