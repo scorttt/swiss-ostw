@@ -131,15 +131,13 @@ Number FrameToSeconds(Number f): f * delta;
 Number FRAMES_PER_MINUTE: 3750;
 Number FRAMES_PER_HOUR: 225000;
 String FormattedFrameToSec(Number f): <"<0><1><2><3>",
-                                            local.timelineFrames >= FRAMES_PER_HOUR // hours
+                                            f >= FRAMES_PER_HOUR // hours
                                                 ? <"<0>:", Floor(FrameToSeconds(f) / 3600)>
                                                 : "",
-                                            local.timelineFrames >= FRAMES_PER_MINUTE // minutes
-                                                ? ((FrameToSeconds(f) >= 3600 || local.timelineFrames >= FRAMES_PER_HOUR) && FrameToSeconds(f) % 3600 / 60 < 10)
-                                                        ? <"0<0>:", Floor(FrameToSeconds(f) / 60) % 60>
-                                                        : <"<0>:", Floor(FrameToSeconds(f) / 60) % 60>
+                                            f >= FRAMES_PER_MINUTE // minutes
+                                                ? <"<0><1>:", f >= FRAMES_PER_HOUR && FrameToSeconds(f) % 3600 < 600 ? "0" : "", Floor(FrameToSeconds(f) / 60) % 60>
                                                 : "",
-                                            Floor(FrameToSeconds(f) % 60) < 10  // seconds
+                                            f >= FRAMES_PER_MINUTE && FrameToSeconds(f) % 60 < 10 // seconds
                                                 ? "0"
                                                 : "",
                                             FrameToSeconds(f) % 60 + 0.0001>; // miliseconds, add small offset so overwatch doesnt hide decimal. this is stupid
@@ -246,7 +244,7 @@ rule: "init timeline tables"
         -0.725,  // 4 handle timestamp
         -1.1425, // 5 frame multiplier
         -0.9575, // 6 flags
-        -1.225,  // 7 time elapsed
+        -1.200,  // 7 time elapsed
         -1.200,  // 8 flag count
         -1.0825   // 9 track end markers
     ];
@@ -289,6 +287,8 @@ rule: "create timeline text"
                                 ? "Recording"
                                 : local.recording
                                     ? "Stop Recording [R x5]"
+                                    : local.recordArmed
+                                        ? "Cancel Recording"
                                     : local.confirmRecord
                                         ? "Replaces track, confirm?"
                                         : "Start Recording [R x5]",
@@ -324,13 +324,15 @@ rule: "create timeline text"
         Header:         "●",
         Position:       CtrlPos(Ctrl.Record),
         Scale:          2,
-        TextColor:      local.recording || local.confirmRecord ? RedPulse() : ButtonColor(Ctrl.Record),
+        TextColor:      local.recording || local.confirmRecord || local.recordArmed 
+                            ? RedPulse() 
+                            : ButtonColor(Ctrl.Record),
         Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
         Clipping:       Clipping.DoNotClip,
         Spectators:     Spectators.VisibleNever);
     // text recording indicator outside tl
     CreateHudText(
-        VisibleTo:      local.recording && !TimelineVisible() ? local : null,
+        VisibleTo:      local.recording && !local.timelineOpen ? local : null,
         Text:           "Recording Player Actions",
         Location:       Location.Top,
         SortOrder:      0,
@@ -472,9 +474,16 @@ rule: "create timeline text"
     // time elapsed
     CreateInWorldText(
         VisibleTo:      TimelineVisible() ? local : null,
-        Header:         TimelineHasFrames(local) ? FormattedFrameToSec(local.currFrame) : "Empty track",
+        Header:         local.recordArmed
+                            ? "Close to begin recording"
+                            : TimelineHasFrames(local)
+                                ? <"<0><1>", FormattedFrameToSec(local.currFrame),
+                                !local.recording
+                                    ? <" / <0>", FormattedFrameToSec(local.recFrames)>
+                                    : "">
+                                : "Empty track",
         Position:       UiPos(0, Ui.TimeElapsed),
-        Scale:          4,
+        Scale:          3,
         TextColor:      Color.White,
         Reevaluation:   InworldTextRev.VisibleToPositionAndString,
         Clipping:       Clipping.DoNotClip,
@@ -610,6 +619,9 @@ if (IsInteractHeld())
         SetAimSpeed(player, 100);
         SetMoveSpeed(player, 100);
         AllowAllButtons();
+
+        if (recordArmed)
+            StartRecording();
     }
 }
 
@@ -889,14 +901,25 @@ void ActivateCtrl(Number | Ctrl ctrl) playervar "TL Sub : Selection Handler"
             ToggleFlag(currFrame);
             break;
         case Ctrl.Record:
-            if (!recording && HasRecording(player) && !confirmRecord)
+            if (recording)
+            {
+                StopRecording();
+                break;
+            }
+
+            if (recordArmed)
+            {
+                recordArmed = false;
+                break;
+            }
+            if (HasRecording(player) && !confirmRecord)
             {
                 confirmRecord = true;
                 break;
             }
 
             confirmRecord = false;
-            ToggleRecording();
+            recordArmed = true;
             break;
         case Ctrl.Track:
             trackMenuOpen = !trackMenuOpen;

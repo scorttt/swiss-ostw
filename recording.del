@@ -1,8 +1,11 @@
 import "state.del";
 
+playervar Boolean recordArmed;
+
 void StartRecording() playervar "Rec Sub : Start Recording"
 {
     // focused track restarts at trimStart, other tracks are untouched
+    recordArmed = false;
     StopAll();
     trackMenuOpen = false;
     optionsMenuOpen = false;
