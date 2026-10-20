@@ -332,8 +332,8 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
     // text recording indicator outside tl
     CreateHudText(
-        VisibleTo:      local.recording && !local.timelineOpen ? local : null,
-        Text:           "Recording Player Actions",
+        VisibleTo:      local.recording ? local : null,
+        Text:           " \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nRecording Player Actions",
         Location:       Location.Top,
         SortOrder:      0,
         TextColor:      RedPulse(),
@@ -620,9 +620,6 @@ if (IsInteractHeld())
         SetAimSpeed(player, 100);
         SetMoveSpeed(player, 100);
         AllowAllButtons();
-
-        if (recordArmed)
-            StartRecording();
     }
 }
 

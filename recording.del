@@ -24,7 +24,22 @@ void StopRecording() playervar "Rec Sub : Stop Recording"
     recording = false;
     currFrame = recStart;
 
-    SmallMessage(player, <"Recording saved! <0> duration, <1> frames", FormattedFrameToSec(recFrames), recFrames>);
+    SmallMessage(player, <"Track <0> saved: <1> long with <2> frames", focusedTrack + 1, FormattedFrameToSec(recFrames), recFrames>);
+}
+
+// record countdown
+rule: "record countdown"
+Event.OngoingPlayer
+if (recordArmed)
+if (!timelineOpen)
+{
+    for (Number i! = 3; i > 0; i--)
+    {
+        SmallMessage(player, i);
+        WaitIfTrue(1);
+    }
+
+    StartRecording();
 }
 
 rule: "recording"
@@ -49,5 +64,5 @@ void ToggleRecording() playervar "Rec Sub : Toggle Recording"
     if (recording)
         StopRecording();
     else
-        StartRecording();
+        recordArmed = !recordArmed;
 }
