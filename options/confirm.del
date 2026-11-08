@@ -1,0 +1,160 @@
+import "../main.del";
+
+// confirmation screen buttons, the order of CONFIRM_
+enum ConfirmBtn
+{
+    Optional,
+    Okay,
+    Cancel
+}
+
+Number[] CONFIRM_X:      [0, -0.4, 0.4];
+Number[] CONFIRM_Y:      [0.22, -0.15, -0.15];
+Number[] CONFIRM_HALF_W: [0.9, 0.25, 0.25];
+
+globalvar String[] EXPORT_STEPS! = [
+    "1. Press Export and wait until it's done",
+    "2. Esc > Open Workshop Inspector > Copy to clipboard all log (2nd button)",
+    "3. Paste into a text editor, delete the first timestamp (or all before the last \"DELETE EVERYTHING BEFORE\")",
+    "4. Import: lobby Settings > Workshop > paste, ensure every \"[IMPORT ...]\" part is present, restart the lobby"
+];
+Number EXPORT_STEP_Y:       0.36;
+Number EXPORT_STEP_SPACING: 0.09;
+
+playervar Number confirmItem;
+playervar Number[] confirmTexts;
+
+rule: "options confirm"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (confirmItem != Item.None)
+{
+    confirmTexts = [];
+    Boolean isExport! = confirmItem == Item.Export;
+
+    CreateInWorldText(
+        VisibleTo:      player,
+        Header:         isExport ? "Export to Inspector" : "End game?",
+        Position:       RenderPosOf(0, 0.6),
+        Scale:          2.5,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    confirmTexts += LastTextID();
+
+    if (isExport)
+    {
+        CreateInWorldText(
+            VisibleTo:      player,
+            Header:         "Workshop Inspector and Inspector Log File must both be enabled (Options > Gameplay > General)",
+            Position:       RenderPosOf(0, 0.47),
+            Scale:          1.2,
+            TextColor:      Color.Yellow,
+            Reevaluation:   InworldTextRev.VisibleToAndPosition,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        confirmTexts += LastTextID();
+
+        for (Number i! = 0; i < EXPORT_STEPS.Length; i++)
+        {
+            Wait(0.1);
+            CreateInWorldText(
+                VisibleTo:      player,
+                Header:         EXPORT_STEPS[Once(i)],
+                Position:       RenderPosOf(0, EXPORT_STEP_Y - Once(i) * EXPORT_STEP_SPACING),
+                Scale:          1.2,
+                TextColor:      Color.White,
+                Reevaluation:   InworldTextRev.VisibleToAndPosition,
+                Clipping:       Clipping.DoNotClip,
+                Spectators:     Spectators.VisibleNever);
+            confirmTexts += LastTextID();
+        }
+
+        CreateInWorldText(
+            VisibleTo:      player,
+            Header:         <"<0> Inspector includes previous exports if the lobby hasn't restarted. Delete other export contents before pasting into a lobby", IconString(Icon.Warning)>,
+            Position:       RenderPosOf(0, EXPORT_STEP_Y - EXPORT_STEPS.Length * EXPORT_STEP_SPACING),
+            Scale:          1,
+            TextColor:      Color.Yellow,
+            Reevaluation:   InworldTextRev.VisibleToAndPosition,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        confirmTexts += LastTextID();
+    }
+    else
+    {
+        CreateInWorldText(
+            VisibleTo:      player,
+            Header:         <"<0> For replays to appear, the game must have been started for at least 30s. Replays can also take up to 5 minutes to appear", IconString(Icon.Warning)>,
+            Position:       RenderPosOf(0, 0.45),
+            Scale:          1.2,
+            TextColor:      Color.Yellow,
+            Reevaluation:   InworldTextRev.VisibleToAndPosition,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        confirmTexts += LastTextID();
+
+        CreateInWorldText(
+            VisibleTo:      player,
+            Header:         <"<0> Also kick me from the lobby", CheckBox(OptOn(Opt.KickOnEnd, local))>,
+            Position:       RenderPosOf(CONFIRM_X[ConfirmBtn.Optional], CONFIRM_Y[ConfirmBtn.Optional]),
+            Scale:          OPT_SCALE,
+            TextColor:      IsHovered(HIT_CONFIRM + ConfirmBtn.Optional) ? OPT_HOVER_COLOR : OptOn(Opt.KickOnEnd, local) ? Color.Green : Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        confirmTexts += LastTextID();
+    }
+
+    CreateInWorldText(
+        VisibleTo:      player,
+        Header:         isExport ? "Export" : "Okay",
+        Position:       RenderPosOf(CONFIRM_X[ConfirmBtn.Okay], CONFIRM_Y[ConfirmBtn.Okay]),
+        Scale:          OPT_SCALE * 1.2,
+        TextColor:      IsHovered(HIT_CONFIRM + ConfirmBtn.Okay) ? OPT_HOVER_COLOR : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    confirmTexts += LastTextID();
+
+    CreateInWorldText(
+        VisibleTo:      player,
+        Header:         "Cancel",
+        Position:       RenderPosOf(CONFIRM_X[ConfirmBtn.Cancel], CONFIRM_Y[ConfirmBtn.Cancel]),
+        Scale:          OPT_SCALE * 1.2,
+        TextColor:      IsHovered(HIT_CONFIRM + ConfirmBtn.Cancel) ? OPT_HOVER_COLOR : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    confirmTexts += LastTextID();
+
+    WaitUntil(confirmItem == Item.None || !optionsMenuOpen, 99999);
+
+    DestroyTexts(confirmTexts);
+    confirmTexts = [];
+}
+
+void ActivateConfirm(Number c!) playervar "opt - confirm input"
+{
+    if (c == ConfirmBtn.Optional)
+        opts[Opt.KickOnEnd] = !opts[Opt.KickOnEnd];
+    else if (c == ConfirmBtn.Okay && confirmItem == Item.Export)
+    {
+        confirmItem = Item.None;
+        async! ExportTracks();
+    }
+    else if (c == ConfirmBtn.Okay)
+    {
+        confirmItem = Item.None;
+        CloseTimeline();
+        DeclareMatchDraw();
+        if (OptOn(Opt.KickOnEnd))
+        {
+            Wait(1);
+            RemovePlayer(player);
+        }
+    }
+    else if (c == ConfirmBtn.Cancel)
+        confirmItem = Item.None;
+}

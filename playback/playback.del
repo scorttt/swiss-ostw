@@ -1,0 +1,154 @@
+import "../main.del";
+
+enum Snap
+{
+    None,
+    Idle,
+    Busy    // ability in use
+}
+
+playervar Number playClock; // Time() the playhead is at, plain since "play" writes it every tick
+
+// frames come from the time like recording does, a tick skipped under load moves the playhead on by more than 1
+rule: "play"
+Event.OngoingPlayer
+if (playing)
+if (currFrame < trimEnd)
+{
+    playClock = Time() - delta; // the first frame moves at once
+    while (playing && currFrame < trimEnd)
+    {
+        tickI = Near((Time() - playClock) / delta); // frames due since the last move
+        currFrame = Min(currFrame + tickI, trimEnd);
+        playClock += tickI * delta;
+        MinWait();
+    }
+    LoopIfConditionIsTrue();
+}
+
+// playback that reached the end of its range, doesnt matter how the playhead got there
+rule: "playback range end"
+Event.OngoingPlayer
+if (playing || fastForwarding || rewinding)
+if (rewinding ? currFrame <= trimStart : currFrame >= trimEnd)
+{
+    if (playing && CanLoop())
+        currFrame = trimStart;
+    else
+    {
+        if (!rewinding)
+        {
+            orbiting = false;
+            FirstPersonDetach();
+        }
+        StopAll();
+    }
+}
+
+Number SNAP_MAX:    125; // 2s, longer abilities just play from the playhead
+Number SNAP_MARGIN: 4;
+
+Boolean TrackPlays(Number t): EntityExists(trackBot[t]) || (firstPerson && t == botTrack); // owner has a bot
+
+playervar Snap snapState;
+playervar Boolean[] snapIgnore; // track busy for the entire snap window (e.g. soldier sprint)
+
+// track t at frame f into snapState, read from the track's storage
+void SampleState(Number t!, Number f!) playervar "playback - sample state"
+{
+    Number s! = f - TrackStart(t, player);
+    if (!TrackPlays(t) || s < 0 || s >= TrackFrames(t, player))
+    {
+        snapState = Snap.None;
+        return;
+    }
+    ReadTrackSample(t, s);
+    snapState = readCtrl.Y % BIT_GROUND >= BIT_USING_AB1 ? Snap.Busy : Snap.Idle; // any ability in use
+}
+
+// snapState is busy if a track that isnt ignored has an ability in use at f, otherwise None
+void CheckTracksBusy(Number f!) playervar "playback - check busy tracks"
+{
+    snapState = Snap.None;
+    for (Number t! = 0; t < MAX_TRACKS && snapState != Snap.Busy; t++)
+    {
+        if (!snapIgnore[t])
+            SampleState(t, f);
+    }
+        
+
+    if (snapState == Snap.Idle)
+        snapState = Snap.None;
+}
+
+rule: "play start snap"
+Event.OngoingPlayer
+if (playStarting)
+{
+    if (!snapRestart)
+        trackHold = TRACK_IDS.Map(t => currFrame);
+    Number chosen! = currFrame;
+    Number f! = chosen;
+    Number lowest! = Max(trimStart, chosen - SNAP_MAX);
+
+    snapIgnore = [];
+    for (Number t! = 0; t < MAX_TRACKS; t++)
+    {
+        Boolean steady! = true;
+        if (TrackPlays(t))
+        {
+            for (Number i! = chosen; i >= lowest && steady; i--)
+            {
+                SampleState(t, i);
+                if (snapState == Snap.Idle)
+                    steady = false;
+
+                if (i % 40 == 0)
+                    MinWait();
+            }
+        }
+        snapIgnore[t] = steady;
+    }
+
+    CheckTracksBusy(f);
+    while (snapState == Snap.Busy && f > lowest)
+    {
+        f--;
+        CheckTracksBusy(f);
+
+        if (f % 20 == 0)
+            MinWait();
+    }
+
+    // only snap to a frame without any ability use, otherwise play from the chosen frame
+    if (playStarting && currFrame == chosen && f != chosen && snapState == Snap.None)
+    {
+        CheckTracksBusy(Max(trimStart, f - SNAP_MARGIN));
+
+        if (snapState == Snap.None)
+            f = Max(trimStart, f - SNAP_MARGIN);
+
+        currFrame = f;
+    }
+
+    if (playStarting)
+    {
+        playStarting = false;
+        
+        if (!snapRestart)
+            trackHold = TRACK_IDS.Map(t => currFrame);
+
+        playing = true;
+    }
+    snapRestart = false;
+}
+
+rule: "fast forward / rewind loop"
+Event.OngoingPlayer
+if (rewinding || fastForwarding)
+if (rewinding ? currFrame > trimStart : currFrame < trimEnd)
+{
+    currFrame = Clamp(currFrame + (fastForwarding ? framesToSkip : -framesToSkip), trimStart, trimEnd);
+    MinWait();
+    LoopIfConditionIsTrue();
+}

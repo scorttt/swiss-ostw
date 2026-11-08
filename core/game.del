@@ -1,0 +1,86 @@
+import "../main.del";
+
+Number SETUP_TIME: 5;
+
+rule: "Initial Global"
+{
+    DisableInspectorRecording();
+    DisableKillFeed(All());
+    TRACK_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    InitObjectives();
+    InitOptionTables();
+    InitCharTable();
+}
+
+// every player init lives in its own file, called once here
+rule: "join"
+Event.OnPlayerJoin
+{
+    InitStatePlayer();
+    InitTimelinePlayer();
+    InitOptionsPlayer();
+}
+
+rule: "short hero select"
+if (IsAssemblingHeroes() || IsInSetup())
+if (MatchTime() > SETUP_TIME)
+{
+    SetMatchTime(SETUP_TIME);
+}
+
+rule: "pause match time"
+if (IsGameInProgress())
+{
+    PauseMatchTime();
+}
+
+rule: "give ult"
+Event.OngoingPlayer
+if (IsAlive())
+if (UltimateChargePercent() != 100)
+if (!IsUsingUltimate())
+{
+    SetUltimateCharge(player, 100);
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+void ResetHeroConsumables() playervar "try to reset hero consumables"
+{
+    // might fail sometimes depending on hero because workshop is a pile of garbage fuck you blizzard
+
+    // only 2 clips as of writing but who knows what bullshit blizzard adds next. no loop, runs on every seeked frame
+    SetAmmo(player, 0, MaxAmmo(player, 0));
+    SetAmmo(player, 1, MaxAmmo(player, 1));
+    SetAmmo(player, 2, MaxAmmo(player, 2));
+    SetAmmo(player, 3, MaxAmmo(player, 3));
+
+    PressButton(player, Button.Reload); // force the reload if setting ammo doesnt work
+
+    SetAbilityResource(player, Button.Ability1, 100);
+    SetAbilityResource(player, Button.Ability2, 100);
+    SetAbilityResource(player, Button.Crouch, 100);
+    SetAbilityResource(player, Button.Jump, 100);
+    SetAbilityResource(player, Button.Melee, 100);
+    SetAbilityResource(player, Button.PrimaryFire, 100);
+    SetAbilityResource(player, Button.SecondaryFire, 100);
+    SetAbilityResource(player, Button.Ultimate, 100);
+}
+
+void SetDamageHealingReceived(in Number percent)
+{
+    SetDamageReceived(player, percent);
+    SetHealingReceived(player, percent);
+}
+
+// stops held abilities
+void CancelActions() playervar "cancel actions"
+{
+    CancelPrimaryAction();
+    SetStatus(player, null, Status.Stunned, 0.01); // just in case the cancel didnt work
+}
+
+void TeleportFacing(in Vector pos, in Vector facing)
+{
+    Teleport(player, pos);
+    SetFacing(player, facing, Relative.ToWorld);
+}

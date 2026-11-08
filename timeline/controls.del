@@ -1,0 +1,179 @@
+import "../main.del";
+
+Number HIT_TRACK:      100; // track menu rows, + track
+Number HIT_TEAM:       120; // track menu team toggles, + track
+Number HIT_DELETE_ALL: 140; // track menu delete all
+Number HIT_HIDE:       150; // track menu hide buttons, + track
+Number HIT_DELETE:     170; // track menu delete buttons, + track
+Number HIT_OPT:        200; // options items, + Item
+Number HIT_CONFIRM:    300; // confirmation screen, + button
+
+playervar Number hovered;   // hovered id
+playervar Number confirmId; // id clicked once and waiting for a second click, cleared when the cursor leaves it
+
+// "cursor hover" runs every tick while the timeline is open. its values are plain variables, ! values share one large
+// array per player and changing that array often lags bots on screen
+playervar Number hoverX;
+playervar Number hoverY;
+playervar Number hoverHit;    // hovered id this tick
+playervar Number hoverFlag;   // hovered flag this tick
+playervar Drag hoverHandle;   // hovered trim handle this tick
+
+
+Number CAM_TURN_WAIT:      0.25; // seconds a turn gets to land
+Number CAM_TURN_TOLERANCE: 0.25; // degrees from the held cursor that count as landed
+playervar Number camTurnEnd;     // Time() the wait for a turn ends at, 0 when there's no turn to wait for
+
+rule: "cursor hover"
+Event.OngoingPlayer
+if (timelineOpen)
+{
+    if (camTurnEnd == 0 || Time() >= camTurnEnd
+        || (Abs(CursorX(player) - hoverX) < CAM_TURN_TOLERANCE && Abs(CursorY(player) - hoverY) < CAM_TURN_TOLERANCE))
+    {
+        camTurnEnd = 0;
+        hoverX = CursorX(player);
+        hoverY = CursorY(player);
+
+        if (Abs(hoverX) > SCREEN_WIDTH || Abs(hoverY) > SCREEN_HEIGHT)
+            SetFacing(Direction: DirectionFromAngles(
+                facingX - Clamp(hoverX, -SCREEN_WIDTH / 1.01, SCREEN_WIDTH / 1.01),
+                facingY - Clamp(hoverY, -SCREEN_HEIGHT / 1.01, SCREEN_HEIGHT / 1.01)));
+    }
+
+    hoverHit = Ctrl.None;
+    hoverFlag = -1;
+
+    ctrlEnabled = CtrlEnabledNow().Map((on, i) => on && (!recording || i == Ctrl.Record || i == Ctrl.AddFlag));
+
+    if (IsInRange(hoverY, LOWER_ROW_Y_MIN, UPPER_ROW_Y_MAX))
+    {
+        if (hoverY <= LOWER_ROW_Y_MAX || hoverY >= UPPER_ROW_Y_MIN) // not between the rows
+        {
+            for (tickI = 0; tickI < CTRL_X.Length; tickI++)
+            {
+                if (ctrlEnabled[tickI]
+                    && (CTRL_Y[tickI] < LOWER_ROW_TEXT_Y) == (hoverY <= LOWER_ROW_Y_MAX)
+                    && Abs(hoverX - CTRL_X[tickI]) <= CTRL_HALF_W[tickI])
+                {
+                    hoverHit = tickI;
+                    break;
+                }
+            }
+        }
+    }
+    else if (!IsDragging(player) && IsInRange(hoverY, UI_FLAGS_Y, UI_FLAGS_Y + 0.10))
+    {
+        for (tickI = 0; tickI < flags.Length; tickI++)
+        {
+            if (Abs(FrameToTrackX(flags[tickI], player) - hoverX) < 0.015)
+            {
+                hoverFlag = tickI;
+                break;
+            }
+        }
+    }
+    else if (trackMenuOpen)
+    {
+        tickJ = (TRACK_MENU_TOP_Y + TRACK_MENU_SPACING - hoverY) / TRACK_MENU_SPACING;
+
+        if (IsInRange(Floor(tickJ), 0, MAX_TRACKS - 1))
+        {
+            if (Abs(hoverX - TRACK_TEAM_X) < TRACK_TEAM_HALF_W)
+                hoverHit = HIT_TEAM + Floor(tickJ);
+            else if (Abs(hoverX) <= TRACK_SLOT_HIT_WIDTH / 2)
+                hoverHit = HIT_TRACK + Floor(tickJ);
+            else if (Abs(hoverX - TRACK_HIDE_X) < TRACK_BTN_HALF_W)
+                hoverHit = HIT_HIDE + Floor(tickJ);
+            else if (Abs(hoverX - TRACK_DELETE_X) < TRACK_BTN_HALF_W && TrackFrames(Floor(tickJ), player) > 0)
+                hoverHit = HIT_DELETE + Floor(tickJ);
+        }
+        else if (Abs(hoverX) < TRACK_SLOT_HIT_WIDTH / 2 && IsInRange(tickJ, TRACK_DELETE_ALL_ROW, TRACK_DELETE_ALL_ROW + 1))
+            hoverHit = HIT_DELETE_ALL;
+    }
+    else if (optionsMenuOpen && confirmItem == Item.None)
+    {
+        for (tickI = 0; tickI < optVisID.Length; tickI++)
+        {
+            tickJ = optVisID[tickI];
+            if (Abs(hoverX - OPT_COL_X[OPT_COL[tickJ]]) < OPT_HIT_HALF_W
+             && Abs(hoverY - optY[tickJ] - OPT_HIT_Y_OFFSET) < OptRows(tickJ) * OPT_SPACING / 2)
+            {
+                hoverHit = HIT_OPT + tickJ;
+                break;
+            }
+        }
+    }
+    else if (confirmItem != Item.None)
+    {
+        for (tickI = confirmItem == Item.Export ? ConfirmBtn.Okay : ConfirmBtn.Optional; tickI < CONFIRM_X.Length; tickI++)
+        {
+            if (Abs(hoverX - CONFIRM_X[tickI])< CONFIRM_HALF_W[tickI]
+             && Abs(hoverY - CONFIRM_Y[tickI] - OPT_HIT_Y_OFFSET) < OPT_SPACING / 2)
+            {
+                hoverHit = HIT_CONFIRM + tickI;
+                break;
+            }
+        }
+    }
+
+    if (hovered != hoverHit)
+        hovered = hoverHit;
+    if (hoverFlagIndex != hoverFlag)
+        hoverFlagIndex = hoverFlag;
+
+    // tooltip for the hovered button, the record tooltip stays while recording
+    tipCtrl = hoverHit != Ctrl.None && hoverHit < HIT_TRACK ? hoverHit : recording ? Ctrl.Record : Ctrl.None;
+
+    hoverHandle = Drag.None;
+    if (dragTarget == Drag.LHandle || dragTarget == Drag.RHandle)
+        hoverHandle = dragTarget;
+
+    else if (!IsDragging(player) && !recording && TimelineHasFrames(player) && IsInRange(hoverY, HANDLE_Y_MIN, HANDLE_Y_MAX))
+    {
+        tickI = Abs(hoverX - TrimStartX(player)) <= HANDLE_HALF_W; // over the left handle
+        tickJ = TrimEndX(player) - TrimStartX(player) < HANDLE_MIN_GAP; // handles are close together
+        if (Abs(hoverX - TrimEndX(player)) <= HANDLE_HALF_W || (tickI && tickJ))
+            // right hasndle wins, unless its at the timeline end and cant go anywhere
+            hoverHandle = trimEnd >= timelineFrames && tickJ ? Drag.LHandle : Drag.RHandle;
+        else if (tickI)
+            hoverHandle = Drag.LHandle;
+    }
+
+    if (handleTip != hoverHandle)
+        handleTip = hoverHandle;
+
+    if (confirmId != Ctrl.None && confirmId != hoverHit)
+        confirmId = Ctrl.None;
+
+    MinWait();
+    LoopIfConditionIsTrue();
+
+    hovered = Ctrl.None;
+    hoverFlagIndex = -1;
+    tipCtrl = Ctrl.None;
+    handleTip = Drag.None;
+    confirmId = Ctrl.None;
+}
+
+playervar Number handleTip;
+playervar Number handleTipText!;
+rule: "handle timestamp"
+Event.OngoingPlayer
+if (handleTip != Drag.None)
+{
+    CreateInWorldText(
+        VisibleTo:      player,
+        Header:         FormattedFrameToSec(local.handleTip == Drag.LHandle ? local.trimStart : local.trimEnd),
+        Position:       UiPos((local.handleTip == Drag.LHandle ? TrimStartX() : TrimEndX()), Ui.HandleTime),
+        Scale:          0.65,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    handleTipText = LastTextID();
+
+    WaitUntil(handleTip == Drag.None, 99999);
+
+    DestroyInWorldText(handleTipText);
+}

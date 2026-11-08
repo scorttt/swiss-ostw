@@ -1,0 +1,241 @@
+import "../main.del";
+
+Number OPT_TOP_Y:          0.675;
+Number OPT_SPACING:        0.135;
+Number OPT_SLIDER_ROWS:    1.7;
+Number OPT_SLIDER_LABEL_Y: 0.05;
+Number OPT_SLIDER_BAR_Y:   0.025;
+Number OPT_SLIDER_PROG_Y:  0.225;
+Number OPT_SLIDER_HALF:    0.40;
+Number OPT_HIT_HALF_W:     0.75;
+Number OPT_HIT_Y_OFFSET:   0.075;
+Color OPT_HOVER_COLOR: CustomColor(68, 186, 255, 255);
+Number OPT_SCALE:          1.5;
+globalvar Number[] OPT_COL_X! = [-1.6, 0, 1.6];
+
+playervar Boolean optionsMenuOpen;
+playervar Number expandedOpt;
+playervar Number optDrag;
+playervar Number optDragValue;
+playervar Number[] optY;       // row height of each item (from LayoutOptions)
+playervar Number[] optVisID;
+playervar Number[] optColRows;
+playervar Number[] optTexts;
+playervar Number[] optBars;
+
+Number OptRows(Number id): OPT_KIND[id] == OptKind.Slider ? OPT_SLIDER_ROWS : 1;
+Boolean OptionsShown(): optionsMenuOpen && confirmItem == Item.None;
+Number SliderValue(Number id, Player p = local): p.optDrag == id ? p.optDragValue : p.opts[OPT_VAR[id]];
+
+// a toggled option or a selected choice (radio button), for the texts of item id. the tables dont change after they're filled
+Boolean OptActive(Number id, Player p = local):
+    Once(OPT_KIND[id]) <= OptKind.Radio && p.opts[Once(OPT_VAR[id])] == Once(OPT_ARG[id]);
+
+String CheckBox(Boolean on): on ? IconString(Icon.Checkmark) : IconString(Icon.No);
+
+void LayoutOptions() playervar "opt - layout"
+{
+    optVisID = [];
+    optColRows = [0, 0, 0];
+    for (Number id! = 0; id < OPT_KIND.Length; id++)
+    {
+        // children of a toggle show while its on, children of a group while its expanded
+        if (OPT_PARENT[id] == Item.None
+            || (OPT_KIND[OPT_PARENT[id]] == OptKind.Toggle ? OptOn(OPT_VAR[OPT_PARENT[id]]) : OPT_PARENT[id] == expandedOpt))
+        {
+            optY[id] = OPT_TOP_Y - (optColRows[OPT_COL[id]] + (OptRows(id) - 1) / 2) * OPT_SPACING;
+            optColRows[OPT_COL[id]] += OptRows(id);
+            optVisID += id;
+        }
+    }
+}
+
+playervar String[] optLabels;
+playervar Boolean optLabelsFresh; // set false wherever an option, or which group is expanded, changes
+
+// the labels are built here, a formatted string in a text takes seconds to show (tests/text-test.del).
+// a slider's label changes every tick while dragged, it keeps its formatted string
+rule: "option labels"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!optLabelsFresh)
+{
+    optLabelsFresh = true;
+    for (Number id! = 0; id < OPT_KIND.Length; id++)
+    {
+        if (OPT_KIND[id] <= OptKind.Radio)
+            optLabels[id] = <"<0> <1>", CheckBox(opts[OPT_VAR[id]] == OPT_ARG[id]), OPT_LABEL[id]>;
+        else if (OPT_KIND[id] == OptKind.Group)
+            optLabels[id] = <"<0> <1>", OPT_LABEL[id], expandedOpt == id ? "−" : "+">;
+        else if (OPT_KIND[id] == OptKind.Cycle)
+            optLabels[id] = OptOn(OPT_VAR[id]) ? OPT_LABEL[id] : "Only play focused track in editor";
+        else
+            optLabels[id] = OPT_LABEL[id];
+    }
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+// the texts of item tickI
+void CreateOptionTexts() playervar "opt - create texts"
+{
+    if (OPT_KIND[tickI] != OptKind.Slider)
+    {
+        CreateInWorldText(
+            VisibleTo:      OptionsShown() && optVisID.Contains(Once(tickI)) ? player : null,
+            Header:         local.optLabels[Once(tickI)],
+            Position:       RenderPosOf(Once(OPT_COL_X[OPT_COL[tickI]]), local.optY[Once(tickI)]),
+            Scale:          OPT_PARENT[tickI] != Item.None ? OPT_SCALE * 0.75 : OPT_SCALE,
+            TextColor:      IsHovered(Once(HIT_OPT + tickI))
+                                ? OPT_HOVER_COLOR
+                                : OptActive(tickI)
+                                    ? Color.Green
+                                    : Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        optTexts += LastTextID();
+    }
+    // sliders are always children
+    else
+    {
+        CreateInWorldText(
+            VisibleTo:      OptionsShown() && optVisID.Contains(Once(tickI)) ? player : null,
+            Header:         <"<0>: <1>", Once(OPT_LABEL[tickI]), SliderValue(Once(tickI))>,
+            Position:       RenderPosOf(Once(OPT_COL_X[OPT_COL[tickI]]), local.optY[Once(tickI)] + OPT_SLIDER_LABEL_Y),
+            Scale:          OPT_SCALE * 0.9,
+            TextColor:      Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionAndString,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        optTexts += LastTextID();
+
+        CreateProgressBarInWorldText(
+            VisibleTo:        OptionsShown() && optVisID.Contains(Once(tickI)) ? player : null,
+            Value:            NormalizedRange(SliderValue(Once(tickI)), Once(SLIDER_MIN[OPT_ARG[tickI]]), SliderMax(Once(OPT_ARG[tickI]))) * 100,
+            Text:             "",
+            Position:         RenderPosOf(Once(OPT_COL_X[OPT_COL[tickI]]), local.optY[Once(tickI)] - OPT_SLIDER_PROG_Y),
+            Scale:            0,
+            ProgressBarColor: Color.White,
+            Reevaluation:     ProgressBarWorldEvaluation.VisibleToPositionAndValues,
+            Clipping:         Clipping.DoNotClip);
+        optBars += LastTextID();
+
+        CreateInWorldText(
+            VisibleTo:      OptionsShown() && optVisID.Contains(Once(tickI)) ? player : null,
+            Header:         "●",
+            Position:       RenderPosOf(
+                                Once(OPT_COL_X[OPT_COL[tickI]]) - OPT_SLIDER_HALF
+                                    + NormalizedRange(SliderValue(Once(tickI)), Once(SLIDER_MIN[OPT_ARG[tickI]]), SliderMax(Once(OPT_ARG[tickI]))) * OPT_SLIDER_HALF * 2,
+                                local.optY[Once(tickI)] - OPT_SLIDER_BAR_Y),
+            Scale:          1.5,
+            TextColor:      IsHovered(Once(HIT_OPT + tickI)) || local.optDrag == Once(tickI) ? OPT_HOVER_COLOR : Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        optTexts += LastTextID();
+    }
+}
+
+rule: "options menu"
+Event.OngoingPlayer
+if (timelineOpen)
+{
+    optLabelsFresh = false;
+    WaitUntil(ServerLoad() < 255, 99999);
+    LayoutOptions();
+    optTexts = [];
+    optBars = [];
+
+    CreateInWorldText(
+        VisibleTo:          OptionsShown() ? player : null, 
+        Header:             "Options", 
+        Position:           RenderPosOf(0, OPT_TOP_Y + 0.32), 
+        Scale:              2, 
+        TextColor:          Color.White, 
+        Reevaluation:       InworldTextRev.VisibleToAndPosition, 
+        Clipping:           Clipping.DoNotClip,
+        Spectators:         Spectators.VisibleNever);
+    optTexts += LastTextID();
+
+    for (Number i! = 0; i < OPT_KIND.Length && timelineOpen; i++)
+    {
+        WaitUntil(ServerLoad() < 255, 99999);
+        tickI = i;
+        CreateOptionTexts();
+
+        // if (optVisID.Contains(i))
+        //     Wait(0.2);
+    }
+
+    WaitUntil(!timelineOpen, 99999);
+
+    DestroyTexts(optTexts);
+    
+    for (Number i! = 0; i < optBars.Length; i++)
+        DestroyProgressBarInWorldText(optBars[i]);
+
+    optTexts = [];
+    optBars = [];
+
+    LoopIfConditionIsTrue();
+}
+
+rule: "options menu closed"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (!optionsMenuOpen)
+if (expandedOpt != Item.None || confirmItem != Item.None || optDrag != Item.None)
+{
+    expandedOpt = Item.None;
+    confirmItem = Item.None;
+    optDrag = Item.None;
+    optLabelsFresh = false;
+    LayoutOptions();
+}
+
+void ActivateOption(Number id!) playervar "opt - activate"
+{
+    Number kind! = OPT_KIND[id];
+    optLabelsFresh = false;
+
+    if (kind == OptKind.Toggle || kind == OptKind.Cycle)
+        opts[OPT_VAR[id]] = !opts[OPT_VAR[id]];
+    else if (kind == OptKind.Radio)
+        opts[OPT_VAR[id]] = OPT_ARG[id];
+    else if (kind == OptKind.Confirm)
+    {
+        if (id == Item.Export && !TimelineHasFrames(player))
+        {
+            SmallMessage(player, "Nothing to export, record something first");
+            return;
+        }
+        confirmItem = id;
+        return;
+    }
+
+    if (kind == OptKind.Group)
+        expandedOpt = expandedOpt == id ? Item.None : id;
+    if (OPT_PARENT.Contains(id))
+        LayoutOptions();
+
+    ApplyOptions();
+}
+
+rule: "option slider drag"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (optDrag != Item.None)
+{
+    tickI = OPT_COL_X[OPT_COL[optDrag]];
+    tickJ = OPT_ARG[optDrag];
+    tickK = SLIDER_MIN[tickJ] + Clamp((CursorX(player) - tickI) / (OPT_SLIDER_HALF * 2) + 0.5, 0, 1) * (SliderMax(tickJ, player) - SLIDER_MIN[tickJ]);
+    tickK = Near(tickK / SLIDER_STEP[tickJ]) * SLIDER_STEP[tickJ];
+
+    if (optDragValue != tickK)
+        optDragValue = tickK;
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}

@@ -1,0 +1,80 @@
+import "../main.del";
+
+Number NOCLIP_SPEED:       60;
+Number NOCLIP_BOOST:       400;
+Number NOCLIP_DRAG_MOVING: 0.03;
+Number NOCLIP_DRAG_IDLE:   0.06;
+
+void ApplyMovementState() playervar "noclip - apply movement"
+{
+    Boolean noclip! = OptOn(Opt.Noclip) && !firstPerson;
+
+    if (!firstPerson)
+        SetGravity(player, noclip ? 0 : 100);
+    SetMoveSpeed(player, noclip || timelineOpen || orbitCam || punchLocked || (firstPerson && !botDriven) ? 0 : 100);
+
+    if (noclip && OptOn(Opt.NoclipNoCollision))
+    {
+        DisableMovementCollisionWithEnvironment(player, true);
+        DisableMovementCollisionWithPlayers();
+    }
+    else
+    {
+        EnableMovementCollisionWithEnvironment();
+        EnableMovementCollisionWithPlayers();
+    }
+
+    // the timeline and the orbit camera take all buttons
+    if (!timelineOpen && !orbitCam)
+    {
+        AllowAllButtons();
+
+        if (noclip)
+        {
+            DisallowButton(player, Button.Jump);
+            DisallowButton(player, Button.Crouch);
+        }
+    }
+    else
+        DisallowAllButtons();
+}
+
+rule: "noclip keybind"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (!timelineOpen)
+if (!recording)
+if (!firstPerson)
+if (IsInteractHeld())
+{
+    WaitUntil(!IsInteractHeld(), 99999);
+    WaitUntil(IsInteractHeld(), 0.1);
+    AbortIf(!IsInteractHeld() || IsReloadHeld() || timelineOpen || recording);
+
+    opts[Opt.Noclip] = !opts[Opt.Noclip];
+    ApplyMovementState();
+    SmallMessage(player, OptOn(Opt.Noclip) ? "Noclip on" : "Noclip off");
+}
+
+playervar Vector noclipDir;
+
+rule: "noclip"
+Event.OngoingPlayer
+if (OptOn(Opt.Noclip))
+if (!firstPerson)
+{
+    noclipDir = timelineOpen || orbitCam ? Vector(0, 0, 0)
+        : Facing() * ThrottleOf().Z + WorldVectorOf(Left(), player, LocalVector.Rotation) * ThrottleX()
+            + Up() * ((IsJumpHeld() ? 1 : 0) - (IsCrouchHeld() ? 1 : 0));
+
+    if (Mag(noclipDir) > 0)
+    {
+        ApplyImpulse(player, VelocityOf() * -1, SpeedOf() * NOCLIP_DRAG_MOVING, Relative.ToWorld, ContraryMotion.Incorporate);
+        ApplyImpulse(player, Norm(noclipDir), (NOCLIP_SPEED + (IsReloadHeld() ? NOCLIP_BOOST : 0) - SpeedOf()) * delta, Relative.ToWorld, ContraryMotion.Incorporate);
+    }
+    else if (SpeedOf() > 0.01)
+        ApplyImpulse(player, VelocityOf() * -1, SpeedOf() * NOCLIP_DRAG_IDLE, Relative.ToWorld, ContraryMotion.Incorporate);
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}

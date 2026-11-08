@@ -1,0 +1,274 @@
+import "../main.del";
+
+globalvar Number importStamp;
+globalvar String[][] importData;
+globalvar String importMap;
+globalvar Number importParts;   // rules the export was split into
+
+globalvar Boolean importDone!;
+
+// decoded samples go through recBuf and recChunk like recording does, nothing is allowed to record during an import
+globalvar Number[] impV;
+// plain variables: an element write into an extended collection array copies the whole array 3 times
+globalvar Number[] impCur;      // char index each Chan reads at
+globalvar Number[] impFA;       // per channel, frame and value of the key at or before the current frame
+globalvar Vector[] impVA;       //   position, facing (yaw unwrapped, pitch), steps (throttle x, buttons, throttle z)
+globalvar Number[] impFB;       // and of the next key
+globalvar Vector[] impVB;
+globalvar Number impHpA!;       // health of the steps keys A and B
+globalvar Number impHpB!;
+playervar Number impProgress!;  // on the host, import progress % shown on the HUD
+
+// the tree each channels cursor is in, and its index. reading importData[e] copies the whole entry (IMPORT_ARRAY trees),
+// so a channel only fetches a tree when its cursor moves into the next. plain, the trees are too large to sit in the ! values
+// that the import writes for every char
+globalvar String[] impS;
+globalvar Number[] impSi;
+
+Number IMPORT_PER_TICK: 16;
+Number IMPORT_MAX_LOAD: 200;    // server load % the import and its bot spawns wait under
+
+// reads count values of 1 or 2 chars at channel c's cursor into impV. every importData entry holds IMPORT_ARRAY trees
+// of TREE_CHARS chars but the last
+void ImpAt(Number | Chan c!, Number count!, Number width!) globalvar "import - at"
+{
+    impV = [];
+    for (Number k! = 0; k < count * width; k++)
+    {
+        Number i! = impCur[c];
+        if (Floor(i / TREE_CHARS) != impSi[c])
+        {
+            impSi[c] = Floor(i / TREE_CHARS);
+            impS[c] = importData[Floor(i / ENTRY_CHARS)][impSi[c] % IMPORT_ARRAY];
+        }
+        Number d! = charTable.IndexOf(impS[c].CharAt(i % TREE_CHARS));
+        impV[Floor(k / width)] = k % width == 0 ? d : impV[Floor(k / width)] * 4096 + d;
+        impCur[c] = i + 1;
+    }
+}
+
+// next key of channel c into impFB / impVB, from the key in impFA / impVA. the same math as the export's ExpKey
+void ImpKey(Number c!) globalvar "import - key"
+{
+    ImpAt(c, 1, 1);
+    Boolean abs! = impV[0] >= 2048;
+    impFB[c] = impFA[c] + impV[0] % 2048;
+
+    if (c != Chan.Steps)
+        ImpAt(c, 3 - c, abs ? 2 : 1);
+
+    if (c == Chan.Pos)
+    {
+        impVB[Chan.Pos] = abs
+            ? DecodePos(Vector(impV[0], impV[1], impV[2]))
+            : impVA[Chan.Pos] + Vector((impV[0] - 2048) * POS_STEP, (impV[1] - 2048) * POS_STEP_Y, (impV[2] - 2048) * POS_STEP);
+    }
+    else if (c == Chan.Look)
+    {
+        impVB[Chan.Look] = abs
+            ? DecodeLook(impVA[Chan.Look].X, impV[0], impV[1])
+            : impVA[Chan.Look] + Vector(impV[0] - 2048, impV[1] - 2048, 0) * ANG_STEP;
+    }
+    else
+    {
+        ImpAt(Chan.Steps, 1, 2);
+        Number b! = impV[0];
+        if (b >= HEALTH_FLAG)
+        {
+            ImpAt(Chan.Steps, 1, 2);
+            impHpB = impV[0] / 1024;
+            b -= HEALTH_FLAG;
+        }
+        ImpAt(Chan.Steps, 2, 1);
+        impVB[Chan.Steps] = Vector(impV[0] / 2047.5 - 1, b, impV[1] / 2047.5 - 1);
+    }
+}
+
+rule: "import recordings"
+Event.OngoingPlayer
+if (player == host)
+if (importStamp > 0)
+if (!importDone)
+if (HasSpawned())
+if (IsAlive())
+{
+    importDone = true;
+
+    if (importParts == 0 || importData.IsTrueForAny(d => d.Length == 0))
+    {
+        CreateHudText(
+            VisibleTo:      All(),
+            Text:           <" \n<0> Import failed! One or more [IMPORT <1>] parts are missing, paste the whole export again", IconString(Icon.Warning), importStamp>,
+            Location:       Location.Top,
+            SortOrder:      0,
+            TextColor:      Color.Red,
+            Reevaluation:   HudTextRev.VisibleTo,
+            Spectators:     Spectators.DefaultVisibility);
+        return;
+    }
+
+    String loadedMap! = <"<0>", CurrentMap()>;
+    if (importMap != loadedMap)
+    {
+        CreateHudText(
+            VisibleTo:      All(),
+            Subheader:      <" \n<0> Warning: current map is not the same as the import's map! Expected <1>", IconString(Icon.Warning), importMap>,
+            Location:       Location.Top,
+            SortOrder:      3,
+            SubheaderColor: Color.Yellow,
+            Reevaluation:   HudTextRev.VisibleTo,
+            Spectators:     Spectators.VisibleNever);
+        // a map's name has the expected map in its name, e.g. King's Row (Winter)
+        CreateHudText(
+            VisibleTo:      All(),
+            Subheader:      <"<0> is loaded<1>", loadedMap, StringContains(importMap, loadedMap) || StringContains(loadedMap, importMap) ? ", is this the same map variant?" : "">,
+            Location:       Location.Top,
+            SortOrder:      3,
+            SubheaderColor: Color.Yellow,
+            Reevaluation:   HudTextRev.VisibleTo,
+            Spectators:     Spectators.VisibleNever);
+    }
+        
+
+    // chars in the export, every tree is full and the directory ends the last
+    Number total! = (importParts - 1) * ENTRY_CHARS + importData[importParts - 1].Length * TREE_CHARS;
+    impProgress = 0;
+    tracksBusy = true;
+    CloseTimeline();
+    CreateHudText(
+        VisibleTo:      player,
+        Text:           <" \n\n\nImporting <0>%", local.impProgress>,
+        Location:       Location.Top,
+        SortOrder:      1,
+        TextColor:      Color.White,
+        Reevaluation:   HudTextRev.VisibleToAndString,
+        Spectators:     Spectators.VisibleNever);
+    Number impHud! = LastTextID();
+    CreateProgressBarHudText(
+        VisibleTo:        player,
+        Value:            local.impProgress,
+        Text:             local.ioStatus,
+        Location:         Location.Top,
+        SortOrder:        2,
+        ProgressBarColor: Color.White,
+        Reevaluation:     ProgressBarHudEvaluation.VisibleToAndValues);
+    Number impHudProg! = LastTextID();
+
+    ioStatus = "Reading the export header";
+    impCur = [0, 0, 0, 0];
+    impSi = [-1, -1, -1, -1];
+    impS = ["", "", "", ""];
+    ImpAt(Chan.Header, 2, 1);
+    Number focus! = impV[0];
+    Number count! = impV[1];
+    ImpAt(Chan.Header, 2, 2);
+    Number tStart! = impV[0];
+    Number tEnd! = impV[1];
+    impCur[Chan.Steps] = total - count * 4;
+    ImpAt(Chan.Steps, count * 2, 2);
+    Number[] dir! = impV;   // facing and steps start of each track
+
+    Number impTotal! = 0;   // frames of the tracks read so far, an import over MAX_TOTAL_SAMPLES is refused
+    for (Number k! = 0; k < count; k++)
+    {
+        WaitUntil(ServerLoad() < IMPORT_MAX_LOAD, 10);
+
+        ImpAt(Chan.Header, 3, 1);
+        Number t! = impV[0];
+        trackHero[t] = AllHeroes()[impV[1]];
+        trackTeam[t] = impV[2];
+
+        ImpAt(Chan.Header, 2, 2);
+        impTotal += impV[1];
+        if (impTotal > MAX_TOTAL_SAMPLES)
+        {
+            SmallMessage(player, "Import stopped at the 10 minute limit, please don't merge imports");
+            break;
+        }
+        trackStart[t] = impV[0];
+        trackFrames[t] = impV[1];
+        ioStatus = <"Track <0> <1>: decoding <2> frames", t + 1, trackHero[t], trackFrames[t]>;
+
+        ImpAt(Chan.Header, 1, 1);
+        ImpAt(Chan.Header, impV[0], 2);
+        StoreTrackFlags(t, impV);
+
+        // the 3 channels start with a key on frame 0, the frame loop moves each on when it reaches its next key
+        impCur[Chan.Pos] = impCur[Chan.Header];
+        impCur[Chan.Look] = dir[k * 2];
+        impCur[Chan.Steps] = dir[k * 2 + 1];
+        impFA = [0, 0, 0];
+        impVA = [Vector(0, 0, 0), Vector(0, 0, 0), Vector(0, 0, 0)];
+        for (Number c! = 0; c < 3; c++)
+            ImpKey(c);
+
+        // same levels and take slots as recording, the slots go into the track's storage
+        Number n! = trackFrames[t];
+        BeginTake(t);
+        
+        for (Number s! = 0; s < n; s++)
+        {
+            for (Number c! = 0; c < 3; c++)
+            {
+                if (s == impFB[c])
+                {
+                    impFA[c] = s;
+                    impVA[c] = impVB[c];
+                    if (c == Chan.Steps)
+                        impHpA = impHpB;
+                    if (s < n - 1)
+                        ImpKey(c);
+                }
+            }
+            Number u! = (s - impFA[Chan.Pos]) / (impFB[Chan.Pos] - impFA[Chan.Pos]);    // 0 / 0 on the last frame is 0
+            Vector p! = impVA[Chan.Pos] + (impVB[Chan.Pos] - impVA[Chan.Pos]) * u;
+            u = (s - impFA[Chan.Look]) / (impFB[Chan.Look] - impFA[Chan.Look]);
+            Vector look! = impVA[Chan.Look] + (impVB[Chan.Look] - impVA[Chan.Look]) * u;
+
+            recBuf += {Pos: p, Look: Vector(Wrap(look.X), look.Y, impHpA), Ctrl: impVA[Chan.Steps]};
+            RecLevelsUp();
+
+            // the stored tracks spike the load every few seconds, more as they grow. the import doesnt add to a spike
+            if (s % IMPORT_PER_TICK == 0)
+            {
+                impProgress = Floor((k + s / n) / count * (100 - count)); // the last 1% per track is its bot spawn
+
+                MinWait();
+
+                if (ServerLoad() > IMPORT_MAX_LOAD)
+                    WaitUntil(ServerLoad() < IMPORT_MAX_LOAD, 2);
+            }
+        }
+        RecLevelsFlush();
+        impCur[Chan.Header] = impCur[Chan.Steps];  // the next track's header follows this one's steps
+    }
+    tracksBusy = false;
+
+    focusedTrack = focus;
+    LoadTrack(focusedTrack);
+    trimStart = tStart;
+    trimEnd = tEnd;
+    UpdateTimelineFrames();
+    currFrame = trimStart;
+    importData = [];
+    impS = []; // the trees the cursors were in
+
+    // a bot spawn costs ~105 load, so one per second, each when the load is down. the progress stays up until the last one
+    Number bots! = TrackCount();    // tracks read, fewer than count if the limit stopped the import
+    Number spawned! = 0;
+    for (Number t! = 0; t < MAX_TRACKS; t++)
+    {
+        if (trackFrames[t] > 0)
+        {
+            impProgress = 100 - bots + spawned;
+            ioStatus = <"Spawning bot <0>/<1> <2><3>", spawned + 1, bots, trackHero[t], ServerLoad() < IMPORT_MAX_LOAD ? "" : " (waiting for server load)">;
+            SpawnIdleTrackBot(t);
+            spawned++;
+            Wait(0.25);
+            WaitUntil(ServerLoad() < IMPORT_MAX_LOAD, 99999);
+        }
+    }
+
+    DestroyHudText(impHud);
+    DestroyProgressBarHudText(impHudProg);
+}

@@ -1,0 +1,95 @@
+import "../main.del";
+
+rule: "grab"
+Event.OngoingPlayer
+if (timelineOpen)
+if (canUseKeybinds)
+if (!recording)
+if (TimelineHasFrames(player))
+if (IsPrimaryHeld())
+if (!IsDragging(player))
+if (handleTip != Drag.None || (Abs(hoverX) < TRACK_HALF && IsInRange(hoverY, SEEKER_Y_MIN, SEEKER_Y_MAX)))
+{
+    if (handleTip != Drag.None)
+        dragTarget = handleTip;
+    else
+    {
+        dragTarget = Drag.Seeker;
+        StopForSeek();
+    }
+
+    WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
+
+    dragTarget = Drag.None;
+}
+
+rule: "drag"
+Event.OngoingPlayer
+if (IsPrimaryHeld())
+if (dragTarget != Drag.None)
+{
+    tickK = -1; // frame the drag snaps to
+
+    for (tickI = 0; tickI < flags.Length; tickI++)
+    {
+        if (Abs(FrameToTrackX(flags[tickI], player) - hoverX) < SNAP_DIST)
+        {
+            tickK = flags[tickI];
+            break;
+        }
+    }
+
+    if (tickK == -1)
+    {
+        for (tickI = 0; tickI < MAX_TRACKS; tickI++)
+        {
+            if (TrackFrames(tickI, player) > 0 && Abs(FrameToTrackX(TrackEnd(tickI, player), player) - hoverX) < SNAP_DIST)
+            {
+                tickK = TrackEnd(tickI, player);
+                break;
+            }
+        }
+    }
+
+    switch (dragTarget)
+    {
+        case Drag.Seeker:
+            if (tickK != -1)
+                currFrame = Clamp(tickK, trimStart, trimEnd);
+            else
+                currFrame = Clamp(TrackXToFrame(hoverX, player), trimStart, trimEnd);
+
+            break;
+
+        case Drag.LHandle:
+            if (tickK != -1 && tickK <= trimEnd)
+                trimStart = tickK;
+            else
+                trimStart = Clamp(TrackXToFrame(hoverX, player), 0, trimEnd);
+
+            if (currFrame < trimStart)
+            {
+                StopForSeek();
+                currFrame = trimStart;
+            }
+
+            break;
+
+        case Drag.RHandle:
+            if (tickK != -1 && tickK >= trimStart)
+                trimEnd = Min(tickK, timelineFrames);
+            else
+                trimEnd = Clamp(TrackXToFrame(hoverX, player), trimStart, timelineFrames);
+
+            if (currFrame > trimEnd)
+            {
+                StopForSeek();
+                currFrame = trimEnd;
+            }
+
+            break;
+    }
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}

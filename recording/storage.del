@@ -1,0 +1,218 @@
+import "../main.del";
+
+// each track is stored in its own variable (trackChunks0 to 11), a list of chunks in CHUNK_SIZE samples
+
+Number MAX_TRACK_SAMPLES: 7500;  // 2 minutes, 60 chunks
+Number MAX_TOTAL_SAMPLES: 37500; // 10 minute budget for all tracks. stored data makes a short load spike every few seconds relative to its size, need to have generous headroom for bots to play
+
+Number CHUNK_SIZE:        125;   // final array that the mid array feeds, then waits to be placed into its own chunk var, must be a multiple of MID_SIZE
+Number MID_SIZE:          25;    // second array that buffer feeds, must be a multiple of BUFFER_SIZE
+Number BUFFER_SIZE:       5;     // initial array that records immediate actions
+
+Number REC_SLOTS:         20;    // full chunks of a take held before they go into storage, one global per Sample field each
+
+// one frame, placed into 3 vectors to minimize variable cost
+struct Sample
+{
+    public Vector Pos;
+    // regular PosOf() vector
+    public Vector Look;
+    // X: HorizontalAngleFromDirection, Y: VerticalAngleFromDirection, Z: health
+
+    public Vector Ctrl;
+    // X throttle, Y buttons (BIT_), Z throttle
+}
+
+// Sample.Ctrl.Y bits. held buttons
+Number BIT_PRIMARY:   1;
+Number BIT_SECONDARY: 2;
+Number BIT_ABILITY1:  4;
+Number BIT_ABILITY2:  8;
+Number BIT_ULTIMATE:  16;
+Number BIT_INTERACT:  32;
+Number BIT_JUMP:      64;
+Number BIT_CROUCH:    128;
+Number BIT_MELEE:     256;
+Number BIT_RELOAD:    512;
+// abilities in use, the bits below USING_AB1 are the held buttons
+Number BIT_USING_AB1: 1024;
+Number BIT_USING_AB2: 2048;
+Number BIT_USING_ULT: 4096;
+// misc
+Number BIT_GROUND:    8192;
+Number BIT_DEAD:      16384; // the highest bit, >= BIT_DEAD is dead
+
+Boolean HasBit(Number bits, Number bit): Floor(bits / bit) % 2 == 1;
+Vector LookDir(Vector look): DirectionFromAngles(look.X, look.Y); // Sample.Look as a facing direction
+
+// per track storage. globals, only the host records and player variables are full
+globalvar Sample[][] trackChunks0;
+globalvar Sample[][] trackChunks1;
+globalvar Sample[][] trackChunks2;
+globalvar Sample[][] trackChunks3;
+globalvar Sample[][] trackChunks4;
+globalvar Sample[][] trackChunks5;
+globalvar Sample[][] trackChunks6;
+globalvar Sample[][] trackChunks7;
+globalvar Sample[][] trackChunks8;
+globalvar Sample[][] trackChunks9;
+globalvar Sample[][] trackChunks10;
+globalvar Sample[][] trackChunks11;
+globalvar Sample[][] recTake;   // staging for whole tracks or a take's slots. used within a tick
+
+globalvar Sample[] recSlot0;
+globalvar Sample[] recSlot1;
+globalvar Sample[] recSlot2;
+globalvar Sample[] recSlot3;
+globalvar Sample[] recSlot4;
+globalvar Sample[] recSlot5;
+globalvar Sample[] recSlot6;
+globalvar Sample[] recSlot7;
+globalvar Sample[] recSlot8;
+globalvar Sample[] recSlot9;
+globalvar Sample[] recSlot10;
+globalvar Sample[] recSlot11;
+globalvar Sample[] recSlot12;
+globalvar Sample[] recSlot13;
+globalvar Sample[] recSlot14;
+globalvar Sample[] recSlot15;
+globalvar Sample[] recSlot16;
+globalvar Sample[] recSlot17;
+globalvar Sample[] recSlot18;
+globalvar Sample[] recSlot19;
+globalvar Number recSlotsUsed!;
+globalvar Number recSlotTrack!;
+
+// samples read by ReadTrackSample
+playervar Vector readPos!;
+playervar Vector readLook!;
+playervar Vector readCtrl!;
+
+void ClearTrack(Number t!) playervar "rec - clear track"
+{
+    switch (t)
+    {
+        case 0:  trackChunks0 = [];  break;
+        case 1:  trackChunks1 = [];  break;
+        case 2:  trackChunks2 = [];  break;
+        case 3:  trackChunks3 = [];  break;
+        case 4:  trackChunks4 = [];  break;
+        case 5:  trackChunks5 = [];  break;
+        case 6:  trackChunks6 = [];  break;
+        case 7:  trackChunks7 = [];  break;
+        case 8:  trackChunks8 = [];  break;
+        case 9:  trackChunks9 = [];  break;
+        case 10: trackChunks10 = []; break;
+        case 11: trackChunks11 = []; break;
+    }
+}
+
+// recTake = track t
+void LoadTrackStage(Number t!) playervar "rec - load track"
+{
+    switch (t)
+    {
+        case 0:  recTake = trackChunks0;  break;
+        case 1:  recTake = trackChunks1;  break;
+        case 2:  recTake = trackChunks2;  break;
+        case 3:  recTake = trackChunks3;  break;
+        case 4:  recTake = trackChunks4;  break;
+        case 5:  recTake = trackChunks5;  break;
+        case 6:  recTake = trackChunks6;  break;
+        case 7:  recTake = trackChunks7;  break;
+        case 8:  recTake = trackChunks8;  break;
+        case 9:  recTake = trackChunks9;  break;
+        case 10: recTake = trackChunks10; break;
+        case 11: recTake = trackChunks11; break;
+    }
+}
+
+// recTake's chunks onto the end of track t
+void AppendTrackStage(Number t!) playervar "rec - append track"
+{
+    switch (t)
+    {
+        case 0:  trackChunks0 += recTake;  break;
+        case 1:  trackChunks1 += recTake;  break;
+        case 2:  trackChunks2 += recTake;  break;
+        case 3:  trackChunks3 += recTake;  break;
+        case 4:  trackChunks4 += recTake;  break;
+        case 5:  trackChunks5 += recTake;  break;
+        case 6:  trackChunks6 += recTake;  break;
+        case 7:  trackChunks7 += recTake;  break;
+        case 8:  trackChunks8 += recTake;  break;
+        case 9:  trackChunks9 += recTake;  break;
+        case 10: trackChunks10 += recTake; break;
+        case 11: trackChunks11 += recTake; break;
+    }
+}
+
+// sample track t into readPos, readLook and readCtrl
+void ReadTrackSample(Number t!, Number s!) playervar "rec - read Sample"
+{
+    tickI = Floor(s / CHUNK_SIZE);
+    tickJ = s % CHUNK_SIZE;
+    switch (t)
+    {
+        case 0:
+            readPos = trackChunks0[tickI][tickJ].Pos;
+            readLook = trackChunks0[tickI][tickJ].Look;
+            readCtrl = trackChunks0[tickI][tickJ].Ctrl;
+            break;
+        case 1:
+            readPos = trackChunks1[tickI][tickJ].Pos;
+            readLook = trackChunks1[tickI][tickJ].Look;
+            readCtrl = trackChunks1[tickI][tickJ].Ctrl;
+            break;
+        case 2:
+            readPos = trackChunks2[tickI][tickJ].Pos;
+            readLook = trackChunks2[tickI][tickJ].Look;
+            readCtrl = trackChunks2[tickI][tickJ].Ctrl;
+            break;
+        case 3:
+            readPos = trackChunks3[tickI][tickJ].Pos;
+            readLook = trackChunks3[tickI][tickJ].Look;
+            readCtrl = trackChunks3[tickI][tickJ].Ctrl;
+            break;
+        case 4:
+            readPos = trackChunks4[tickI][tickJ].Pos;
+            readLook = trackChunks4[tickI][tickJ].Look;
+            readCtrl = trackChunks4[tickI][tickJ].Ctrl;
+            break;
+        case 5:
+            readPos = trackChunks5[tickI][tickJ].Pos;
+            readLook = trackChunks5[tickI][tickJ].Look;
+            readCtrl = trackChunks5[tickI][tickJ].Ctrl;
+            break;
+        case 6:
+            readPos = trackChunks6[tickI][tickJ].Pos;
+            readLook = trackChunks6[tickI][tickJ].Look;
+            readCtrl = trackChunks6[tickI][tickJ].Ctrl;
+            break;
+        case 7:
+            readPos = trackChunks7[tickI][tickJ].Pos;
+            readLook = trackChunks7[tickI][tickJ].Look;
+            readCtrl = trackChunks7[tickI][tickJ].Ctrl;
+            break;
+        case 8:
+            readPos = trackChunks8[tickI][tickJ].Pos;
+            readLook = trackChunks8[tickI][tickJ].Look;
+            readCtrl = trackChunks8[tickI][tickJ].Ctrl;
+            break;
+        case 9:
+            readPos = trackChunks9[tickI][tickJ].Pos;
+            readLook = trackChunks9[tickI][tickJ].Look;
+            readCtrl = trackChunks9[tickI][tickJ].Ctrl;
+            break;
+        case 10:
+            readPos = trackChunks10[tickI][tickJ].Pos;
+            readLook = trackChunks10[tickI][tickJ].Look;
+            readCtrl = trackChunks10[tickI][tickJ].Ctrl;
+            break;
+        case 11:
+            readPos = trackChunks11[tickI][tickJ].Pos;
+            readLook = trackChunks11[tickI][tickJ].Look;
+            readCtrl = trackChunks11[tickI][tickJ].Ctrl;
+            break;
+    }
+}

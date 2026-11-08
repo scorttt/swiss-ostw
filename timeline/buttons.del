@@ -1,0 +1,404 @@
+import "../main.del";
+
+// clickable items, the order of CtrlEnabledNow and the tooltip list
+enum Ctrl
+{
+    Play = 0,
+    Pause = 1,
+    Stop = 2,
+    Rewind = 3,
+    Forward = 4,
+    PrevFrame = 5,
+    NextFrame = 6,
+    Options = 7,
+    Record = 8,
+    Track = 9,
+    AddFlag = 10,
+    DeleteTrack = 11,
+    ChangeHero = 12,
+    Team = 13,
+    Loop = 14,
+    GoTo = 15,
+    Objective = 16,
+    PrevTrack = 17,
+    NextTrack = 18,
+    None = -1
+}
+
+// buttons sit in two rows, a hitbox spans its row's height
+Number UPPER_ROW_Y_MIN:  -1.15;
+Number UPPER_ROW_Y_MAX:  -1.05;
+Number LOWER_ROW_Y_MIN:  -1.275;
+Number LOWER_ROW_Y_MAX:  -1.16;
+Number LOWER_ROW_TEXT_Y: -1.2; // buttons with their text below this are in the lower row
+
+globalvar Number[] CTRL_X;
+globalvar Number[] CTRL_Y;      // text y position when the menu is open
+globalvar Number[] CTRL_HALF_W;
+
+playervar Number tipCtrl; // button whose tooltip is shown
+playervar Boolean[] ctrlEnabled;
+
+Any CtrlPos(Number | Ctrl id, Number xOffset = 0, Number yOffset = 0): RenderPosOf(CTRL_X[id] + xOffset, local.timelineCtrlYPos[id] + yOffset);
+Boolean IsHovered(Number | Ctrl id): local.hovered == id;
+
+// the play button is Pause, but not while firstPerson is paused by the timeline (Play resumes it then)
+Boolean ShowsPause(Player p = player): p.playbackActive && p.firstPersonPaused == Paused.None;
+
+// which buttons can be clicked, by Ctrl. cursor hover sets ctrlEnabled from it every tick, while recording only Record and AddFlag stay
+Boolean[] CtrlEnabledNow():
+    [
+        (!playbackActive && CanPlay()) || firstPersonPaused != Paused.None,                         // Play
+        ShowsPause(),                                                                               // Pause
+        playbackActive,                                                                             // Stop
+        currFrame != trimStart,                                                                     // Rewind
+        currFrame != trimEnd,                                                                       // Forward
+        currFrame != trimStart,                                                                     // PrevFrame
+        currFrame != trimEnd,                                                                       // NextFrame
+        true,                                                                                       // Options
+        !RecordRetakes() || RetakeHeroMatches() || recording,                                       // Record, a retake needs the track's hero
+        true,                                                                                       // Track
+        (recording || HasRecording()) && (flags.Contains(currFrame) || flags.Length < MAX_FLAGS),   // AddFlag
+        HasRecording(),                                                                             // DeleteTrack
+        !recordArmed && !firstPerson,                                                               // ChangeHero
+        true,                                                                                       // Team
+        true,                                                                                       // Loop
+        !firstPerson && HasRecording(),                                                             // GoTo
+        !firstPerson && objectiveCount > 0,                                                         // Objective
+        true,                                                                                       // PrevTrack
+        true                                                                                        // NextTrack
+    ];
+
+// button text color, also used for rewinding/fast forwarding
+Color ButtonColor(Number | Ctrl id, Boolean active = false):
+    IsHovered(id) || active
+        ? BluePulse()
+        : local.ctrlEnabled[id]
+            ? Color.White
+            : CustomColor(140, 140, 140, 255);
+
+// creates a clickable button, and creates its text when it has a fixed label
+void UIButton(Number | Ctrl id!, Number x!, Number y!, Number hitSize!, String label! = "", Number scale! = 2) globalvar "ui button"
+{
+    CTRL_X[id] = x;
+    CTRL_Y[id] = y;
+    CTRL_HALF_W[id] = hitSize / 2;
+
+    if (label != "")
+        CreateInWorldText(
+            VisibleTo:      TimelineVisible() ? local : null,
+            Header:         Once(id) == Ctrl.Record && !local.recording && RecordRetakes(local)
+                                ? "◐"
+                                : Once(label),
+            Position:       CtrlPos(Once(id)),
+            Scale:          scale,
+            TextColor:      local.confirmId == Once(id) || (Once(id) == Ctrl.Record && (local.recording || local.recordArmed))
+                                ? RedPulse()
+                                : Once(id) == Ctrl.Loop && !IsHovered(Ctrl.Loop) && local.ctrlEnabled[Ctrl.Loop] && local.loopPlayback
+                                    ? Color.Green
+                                    : ButtonColor(Once(id),
+                                        (Once(id) == Ctrl.Rewind && (local.rewinding || local.firstPersonPaused == Paused.Rewind))
+                                     || (Once(id) == Ctrl.Forward && (local.fastForwarding || local.firstPersonPaused == Paused.Forward))),
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+}
+
+rule: "init buttons"
+{
+    UIButton(Ctrl.Play,        -2.380, -1.150, 0.125);
+    UIButton(Ctrl.Pause,       -2.385, -1.150, 0.125);
+    UIButton(Ctrl.Stop,        -2.250, -1.150, 0.125, "■", 1.75);
+    UIButton(Ctrl.Rewind,      -2.125, -1.150, 0.125, "«");
+    UIButton(Ctrl.Forward,     -2.000, -1.150, 0.100, "»");
+    UIButton(Ctrl.PrevFrame,   -1.900, -1.150, 0.115, "‹");
+    UIButton(Ctrl.NextFrame,   -1.800, -1.150, 0.085, "›");
+    UIButton(Ctrl.Options,      2.350, -1.275, 0.500, "Options", 1.5);
+    UIButton(Ctrl.Record,      -2.520, -1.150, 0.150, "●");
+    UIButton(Ctrl.Track,        2.350, -1.150, 0.350);
+    UIButton(Ctrl.AddFlag,     -1.700, -1.160, 0.085);
+    UIButton(Ctrl.DeleteTrack, -1.590, -1.160, 0.085, "×");
+    UIButton(Ctrl.ChangeHero,   1.750, -1.275, 0.600, "Change Hero", 1.5);
+    UIButton(Ctrl.Team,         1.120, -1.275, 0.550);
+    UIButton(Ctrl.Loop,        -1.475, -1.160, 0.100, "∞");
+    UIButton(Ctrl.GoTo,         1.750, -1.150, 0.600, "Go To Track", 1.5);
+    UIButton(Ctrl.Objective,    1.120, -1.150, 0.600, "Go to Objective", 1.5);
+    UIButton(Ctrl.PrevTrack,    2.120, -1.150, 0.100, "‹");
+    UIButton(Ctrl.NextTrack,    2.580, -1.150, 0.100, "›");
+}
+
+rule: "create button texts"
+{
+    // tooltip, big ugly array for one text since only one is visible at a time, must be ordered the same as Ctrl enum.
+    // "" for buttons without a tooltip
+    CreateInWorldText(
+        VisibleTo:      local.timelineOpen && local.tipCtrl != Ctrl.None ? local : null,
+        Header:         local.tipCtrl == Ctrl.None ? "" :
+                        [<"Play [<0>]", BindString(Button.Jump)>,                                                    // Play
+                         <"Pause [<0>]", BindString(Button.Jump)>,                                                   // Pause
+                         <"Stop Playback [Crouch + <0>]", BindString(Button.Jump)>,                                  // Stop
+                         <"Rewind [<0> + <1>]", BindString(Button.Ability1), BindString(Button.Ultimate)>,           // Rewind
+                         <"Fast Forward [<0> + <1>]", BindString(Button.Ability1), BindString(Button.Ability2)>,     // Forward
+                         <"Previous Frame [<0>]", BindString(Button.Ultimate)>,                                      // PrevFrame
+                         <"Next Frame [<0>]", BindString(Button.Ability2)>,                                          // NextFrame
+                         "",                                                                                         // Options
+                         !IsHovered(Ctrl.Record)                                                                     // Record
+                             ? "Recording"
+                             : local.recording
+                                 ? <"Stop Recording [Hold <0> + <1> x2]", BindString(Button.Reload), BindString(Button.Interact)>
+                                 : local.recordArmed
+                                     ? local.punchFrame != -1 && CanRetake(local) ? "Cancel Retake, click again to replace track" : "Cancel Recording"
+                                     : CanRetake(local)
+                                         ? "Retake from playhead"
+                                         : <"Start Recording [Hold <0> + <1> x2]", BindString(Button.Reload), BindString(Button.Interact)>,
+                         "",                                                                                         // Track
+                         IsAbility1Held(local) && local.flags.Length > 0
+                             ? <"Remove All Flags [<0> + <1>]", BindString(Button.Ability1), BindString(Button.Melee)>
+                             : <"<0> Flag [<1>]", local.flags.Contains(local.currFrame)                              // AddFlag
+                                                     ? "Remove"
+                                                     : "Add", BindString(Button.Melee)>,
+                         local.confirmId == Ctrl.DeleteTrack ? "Confirm Delete?" : "Delete Current Track",           // DeleteTrack
+                         "",                                                                                         // ChangeHero
+                         "",                                                                                         // Team
+                         <"Loop: <0>", local.loopPlayback ? "On" : "Off">,                                           // Loop
+                         "",                                                                                         // GoTo
+                         "",                                                                                         // Objective
+                         "",                                                                                         // PrevTrack
+                         ""                                                                                          // NextTrack
+                        ][local.tipCtrl],
+        Position:       RenderPosOf(CTRL_X[local.tipCtrl], TOOLTIP_Y),
+        Scale:          TOOLTIP_SIZE,
+        TextColor:      local.tipCtrl == Ctrl.Record && local.recording ? RedPulse() : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         ShowsPause(local) ? "I I" : "▶",
+        Position:       CtrlPos(Ctrl.Play, ShowsPause(local) ? 0.002 : 0, ShowsPause(local) ? -0.0075 : 0),
+        Scale:          2,
+        TextColor:      ButtonColor(ShowsPause(local) ? Ctrl.Pause : Ctrl.Play),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         <"Track <0>", local.focusedTrack + 1>,
+        Position:       CtrlPos(Ctrl.Track),
+        Scale:          1.5,
+        TextColor:      ButtonColor(Ctrl.Track),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         <"Team: <0>", local.trackTeam[local.focusedTrack] == Side.Enemy ? "Enemy" : "Ally">,
+        Position:       CtrlPos(Ctrl.Team),
+        Scale:          1.5,
+        TextColor:      !IsHovered(Ctrl.Team)
+                            ? local.trackTeam[local.focusedTrack] == Side.Enemy
+                                ? Color.Red
+                                : Color.Blue
+                            : BluePulse(),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         local.flags.Contains(local.currFrame) ? "−" : "+",
+        Position:       CtrlPos(Ctrl.AddFlag),
+        Scale:          2,
+        TextColor:      ButtonColor(Ctrl.AddFlag),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+}
+
+void StartPlayback() playervar "tl - start playback"
+{
+    if (currFrame >= trimEnd)
+        currFrame = trimStart;
+
+    firstPersonLeft = false; // firstPerson takes over
+    playbackActive = true;
+    playStarting = true;
+    fastForwarding = false;
+    rewinding = false;
+
+    orbiting = true;
+
+    // firstPerson only plays with the timeline closed
+    if (HasRecording() && opts[Opt.Perspective] == Persp.FirstPerson)
+        CloseTimeline();
+}
+
+void ActivateCtrl(Number | Ctrl ctrl!) playervar "tl - selection handler"
+{
+    if (recording && ctrl != Ctrl.Record && ctrl != Ctrl.AddFlag)
+        return;
+
+    switch (ctrl)
+    {
+        case Ctrl.Play:
+            if (firstPersonPaused != Paused.None)
+                CloseTimeline();
+            else if (CanPlay())
+                StartPlayback();
+            break;
+        case Ctrl.Pause:
+            StopAll();
+            break;
+        case Ctrl.Stop:
+            StopAll();
+            currFrame = trimStart;
+            FirstPersonDetach();
+            break;
+        // also counts a fast forward / rewind paused by the timeline while FirstPerson
+        case Ctrl.Rewind:
+            if (fastForwarding || firstPersonPaused == Paused.Forward)
+            {
+                StopAll();
+                break;
+            }
+
+            framesToSkip = rewinding || firstPersonPaused == Paused.Rewind ? Min(framesToSkip * 2, 32) : 2;
+
+            if (currFrame != trimStart)
+            {
+                playbackActive = true;
+                rewinding = true;
+                playing = false;
+                playStarting = false;
+            }
+            break;
+        case Ctrl.Forward:
+            if (rewinding || firstPersonPaused == Paused.Rewind)
+            {
+                StopAll();
+                break;
+            }
+
+            framesToSkip = fastForwarding || firstPersonPaused == Paused.Forward ? Min(framesToSkip * 2, 32) : 2;
+
+            if (currFrame != trimEnd)
+            {
+                playbackActive = true;
+                fastForwarding = true;
+                playing = false;
+                playStarting = false;
+            }
+            break;
+        case Ctrl.PrevFrame:
+            StopForSeek();
+
+            if (currFrame > trimStart)
+                currFrame--;
+            break;
+        case Ctrl.NextFrame:
+            StopForSeek();
+
+            if (currFrame < trimEnd)
+                currFrame++;
+            break;
+        case Ctrl.AddFlag:
+            ToggleFlag();
+            break;
+        case Ctrl.Record:
+            if (recording)
+            {
+                StopRecording();
+                break;
+            }
+
+            // with the playhead inside a recorded track: the first click arms a retake from the playhead, the second the whole track,
+            // the third cancels. at the track's start a retake would replace it all, so it's a normal take there (and armed retakes become one)
+            if (recordArmed)
+            {
+                if (RecordRetakes())
+                    punchFrame = -1;
+                else
+                    recordArmed = false;
+                break;
+            }
+
+            punchFrame = CanRetake() ? currFrame : -1; // the countdown takes the retake's frame from the playhead, it can be seeked meanwhile
+            recordArmed = true;
+            break;
+        case Ctrl.Track:
+            trackMenuOpen = !trackMenuOpen;
+            optionsMenuOpen = false;
+            break;
+        case Ctrl.Options:
+            optionsMenuOpen = !optionsMenuOpen;
+            trackMenuOpen = false;
+            break;
+        case Ctrl.DeleteTrack:
+            if (confirmId != Ctrl.DeleteTrack)
+            {
+                confirmId = Ctrl.DeleteTrack;
+                break;
+            }
+
+            confirmId = Ctrl.None;
+            DeleteTrack(focusedTrack);
+            break;
+        case Ctrl.ChangeHero:
+            CloseTimeline();
+            heroSwapPos = PosOf();
+            heroSwapFacing = Facing();
+            heroSwapping = true;
+            SetAllowedHeroes(player, AllowedHeroes() - HeroOf());
+            ResetHeroAvailability();
+            break;
+        case Ctrl.Team:
+            ToggleTrackTeam(focusedTrack);
+            break;
+        case Ctrl.PrevTrack:
+            SelectTrack((focusedTrack + MAX_TRACKS - 1) % MAX_TRACKS);
+            break;
+        case Ctrl.NextTrack:
+            SelectTrack((focusedTrack + 1) % MAX_TRACKS);
+            break;
+        case Ctrl.Loop:
+            loopPlayback = !loopPlayback;
+            // turning loop on at the end of the track plays it again
+            if (CanLoop() && currFrame >= trimEnd)
+                StartPlayback();
+            break;
+        case Ctrl.GoTo:
+            ReadTrackSample(focusedTrack, Clamp(currFrame - recStart, 0, recFrames - 1));
+            Teleport(player, readPos);
+            break;
+        case Ctrl.Objective:
+            // dont allow payload in the tp cycle unless it has progress
+            if (hasPayload && objectiveNext == 0 && PayloadProgressPercentage() <= 0)
+                objectiveNext = 1;
+
+            Number o! = objectiveNext - (hasPayload ? 1 : 0); // -1 is the payload
+
+            if (CurrentGameMode() == GameMode.Push) // push's real objective position is the second objective for some reason
+                o = 1;
+
+            Teleport(player, NearestWalkablePos(o == -1 ? PayloadPosition() : ObjectivePosition(o)));
+            objectiveNext = (objectiveNext + 1) % (objectiveCount + (hasPayload ? 1 : 0));
+            break;
+    }
+}
+
+playervar Boolean heroSwapping!;
+playervar Vector heroSwapPos!;
+playervar Vector heroSwapFacing!;
+rule: "restore pos after hero swap"
+Event.OngoingPlayer
+if (heroSwapping)
+{
+    WaitUntil(HasSpawned() && IsAlive(), 99999);
+
+    TeleportFacing(heroSwapPos, heroSwapFacing);
+    ApplyMovementState();
+    heroSwapping = false;
+}

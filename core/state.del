@@ -1,0 +1,56 @@
+import "../main.del";
+
+Number delta: 0.016; // length of each "frame" as wait durations. workshop clamps this value to the nearest 0.016
+
+playervar Boolean playbackActive; // any form of playback bool
+playervar Boolean playing; // normal playback bool
+playervar Boolean rewinding;
+playervar Boolean fastForwarding;
+playervar Boolean recording;
+playervar Number framesToSkip!;
+playervar Boolean playStarting; // play was pressed, "play start snap" runs before playing starts
+playervar Boolean loopPlayback!;
+
+playervar Number timelineFrames; // shared timeline length, end frame of the longest track
+playervar Number recStart; // frame the focused track starts at on the shared timeline
+playervar Number recFrames; // amount of frames in the focused track
+playervar Number trimStart;
+playervar Number trimEnd;
+playervar Number currFrame;
+playervar Number[] flags;
+
+Boolean HasRecording(Player p = player): p.recFrames > 0; // focused track has frames
+Boolean TimelineHasFrames(Player p = local): p.timelineFrames > 0;
+Boolean CanLoop(): loopPlayback && trimEnd > trimStart;
+Boolean CanPlay(): currFrame != trimEnd || CanLoop(); // play from the playhead, or loop from the trim end
+
+playervar Number[] trackHold; // frame each unfocused track holds with "Play all tracks" off: where playback started, or where it was when focus left it
+playervar Boolean snapRestart!; // play start snap restarts running playback (First Person track switch), the holds are kept
+playervar Number recLimit!; // frames the take can have: the track and total limits, and the trim end with "Stop at trim end"
+
+// ! values share one large array per player, and changing that array can lag bots during playback. only valid until the next wait, isnt kept across one
+playervar Number tickI;
+playervar Number tickJ;
+playervar Number tickK;
+
+void InitStatePlayer() playervar "init state player"
+{
+    flags = [];
+    loopPlayback = true;
+}
+
+void StopAll() playervar "stop all playback"
+{
+    playbackActive = false;
+    playing = false;
+    playStarting = false;
+    fastForwarding = false;
+    rewinding = false;
+    firstPersonPaused = Paused.None; // stopped FOR REAL, closing the timeline doesnt resume
+}
+
+void StopForSeek() playervar "stop for seek"
+{
+    if (playbackActive && firstPersonPaused == Paused.None)
+        StopAll();
+}

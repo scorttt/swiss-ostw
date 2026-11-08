@@ -1,0 +1,93 @@
+import "../main.del";
+
+Number MAX_TRACKS: 12;
+
+// the focused tracks flags live in flags and go into trackFlags when focus leaves it. recStart and recFrames are working copies, trackStart and trackFrames are always current
+playervar Number focusedTrack;
+playervar Number[] trackStart;
+playervar Number[] trackFrames;
+playervar Number[] trackFlags;
+playervar Hero[] trackHero;
+
+globalvar Number[] TRACK_IDS!;
+
+Number TrackStart(Number t, Player p = local): p.trackStart[t];
+Number TrackFrames(Number t, Player p = local): p.trackFrames[t];
+Number TrackEnd(Number t, Player p = local): TrackStart(t, p) + TrackFrames(t, p);
+
+// frame + 1, so an empty slot is 0
+void StoreTrackFlags(Number t!, Number[] list!) playervar "track - store flags"
+{
+    for (tickI = 0; tickI < MAX_FLAGS; tickI++)
+        trackFlags[t * MAX_FLAGS + tickI] = tickI < list.Length ? list[tickI] + 1 : 0;
+}
+
+Number[] TrackFlagList(Number t): trackFlags.Slice(t * MAX_FLAGS, MAX_FLAGS).Filter(f => f > 0).Map(f => f - 1);
+
+void LoadTrack(in Number t)
+{
+    recStart = trackStart[t];
+    recFrames = trackFrames[t];
+    flags = TrackFlagList(t);
+}
+// the timeline length from the tracks, the trims and the playhead are clamped into it
+void UpdateTimelineFrames() playervar "track - update timeline frames"
+{
+    timelineFrames = SortedArray(TRACK_IDS.Map(t => TrackEnd(t, player)), Curr()).Last;
+    trimStart = Clamp(trimStart, 0, timelineFrames);
+    trimEnd = Clamp(trimEnd, trimStart, timelineFrames);
+    currFrame = Clamp(currFrame, trimStart, trimEnd);
+}
+
+void SelectTrack(Number t!) playervar "track - select track"
+{
+    trackMenuOpen = false;
+
+    if (t == focusedTrack)
+        return;
+
+    // playback keeps going, with "Play all tracks" off the previous track holds where it was
+    if (playbackActive)
+        trackHold[focusedTrack] = currFrame;
+
+    StoreTrackFlags(focusedTrack, flags);
+    focusedTrack = t;
+    trackLabelsFresh = false;
+    LoadTrack(t);
+}
+
+void DeleteTrack(Number t!) playervar "track - delete track"
+{
+    StopAll();
+    DestroyTrackBot(t);
+    ClearTrack(t);
+    trackStart[t] = 0;
+    trackFrames[t] = 0;
+    trackLabelsFresh = false;
+    trackHidden[t] = false;
+    StoreTrackFlags(t, []);
+
+    if (t == focusedTrack)
+    {
+        flags = [];
+        recStart = 0;
+        recFrames = 0;
+    }
+
+    UpdateTimelineFrames(); // StopAll ended firstPerson's playback, "firstPerson detach" lets go once the timeline closes
+}
+
+void DeleteAllTracks() playervar "track - delete all tracks"
+{
+    for (Number t! = 0; t < MAX_TRACKS; t++)
+    {
+        DestroyTrackBot(t);
+        ClearTrack(t);
+    }
+
+    trackStart = [];
+    trackFrames = [];
+    trackFlags = [];
+    trackHidden = [];
+    DeleteTrack(focusedTrack);
+}

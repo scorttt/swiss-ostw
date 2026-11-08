@@ -1,0 +1,79 @@
+import "../main.del";
+
+Number MAX_FLAGS: 8;
+Number SNAP_DIST: 0.0175;
+void ToggleFlag() playervar "tl - toggle flag"
+{
+    if (!recording && !HasRecording())
+        return;
+
+    if (flags.Contains(currFrame))
+        flags = flags - currFrame;
+    else if (flags.Length < MAX_FLAGS)
+        flags = flags + currFrame;
+}
+
+playervar Number[] flagMarkerTexts;
+rule: "flag markers"
+Event.OngoingPlayer
+if (timelineOpen || closing)
+{
+    Number count! = flags.Length;
+    flagMarkerTexts = [];
+
+    for (Number i! = 0; i < count; i++)
+    {
+        CreateInWorldText(
+            VisibleTo:      player,
+            Header:         "I",
+            Position:       UiPos(FrameToTrackX(local.flags[Once(i)]), Ui.Flags),
+            Scale:          2,
+            TextColor:      Color.Yellow,
+            Reevaluation:   InworldTextRev.VisibleToAndPosition,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        flagMarkerTexts += LastTextID();
+    }
+
+    WaitUntil(flags.Length != count || !(timelineOpen || closing), 99999);
+
+    DestroyTexts(flagMarkerTexts);
+    flagMarkerTexts = [];
+    LoopIfConditionIsTrue();
+}
+
+rule: "add/remove flag"
+Event.OngoingPlayer
+if (timelineOpen)
+if (canUseKeybinds)
+if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
+{
+    if (hoverFlagIndex != -1)
+    {
+        if (IsMeleeHeld() || IsSecondaryHeld())
+            flags = RemoveFromArrayAtIndex(flags, hoverFlagIndex);
+        else if (!recording)
+        {
+            StopForSeek();
+            currFrame = Clamp(flags[hoverFlagIndex], trimStart, trimEnd);
+        }
+    }
+    else if (IsMeleeHeld() && !IsAbility1Held())
+    {
+        ToggleFlag();
+    }
+
+    WaitUntil(!IsMeleeHeld() && !IsPrimaryHeld() && !IsSecondaryHeld(), 99999);
+}
+
+rule: "remove all flags"
+Event.OngoingPlayer
+if (timelineOpen)
+if (canUseKeybinds)
+if (hoverFlagIndex != -1 || hovered == Ctrl.AddFlag || (flags.Contains(currFrame) && IsMeleeHeld()) )
+if (IsAbility1Held())
+if (IsMeleeHeld() || IsSecondaryHeld())
+{
+    flags = [];
+    WaitUntil(!IsMeleeHeld() && !IsSecondaryHeld(), 99999);
+}

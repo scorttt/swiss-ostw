@@ -1,0 +1,469 @@
+import "../main.del";
+
+// DISCLAIMER: export / import has been assisted with AI for swinging door compression, code is partially converted from a simpler export/import process
+
+// recordings are exported through the Inspector log as pasteable vanilla Workshop rules, one per IMPORT_ARRAY trees
+// (a rule cant be pasted above 98 KB). each rule fills its own importData entry with trees of charTable characters
+// (2 chars = 24 bits = float32s exact integer range), and "import recordings" decodes them into the hosts
+// tracks at game start, replacing theirs. the stamp (game time of the export) identifies an export: a part runs unless a
+// higher stamp is already loaded, and a higher stamp than the loaded one clears importData first. so an exports parts
+// load in any order, and with several pasted exports the highest stamp wins. the last part stores the part count, so a
+// missing part is reported instead of imported. stamps from different lobbies dont compare, its an identifier, not an age
+//
+// a tree is a Custom String of 119 chars with "{0}{1}{2}" after them, its 3 slots each another one like it, and their
+// slots strings of 128 chars: 4 outer and 9 inner strings, TREE_CHARS chars. in game an outer string costs 2 elements and
+// an inner one 5 (1 per empty slot), ~20% more chars per element than plain 128 char strings. the stream fills the
+// strings in the order the tree reads them, which is also the order they're written in (outer text first). the last tree
+// is filled up so the directory ends it, every tree is full
+//
+// a track is written as keys instead of every frame. values are
+// written in groups of the same width (ExpPut / ImpAt), stream:
+//   focused trackCount (1 char each), trimStart trimEnd (2), then per track:
+//   track hero team (1), start frames (2), flagCount (1), flags (2), then the tracks 3 channels one after another:
+//   position and facing: curves within POS_TOL / ANG_TOL, interpolated linearly between keys on import. a key is a gap
+//     char (frames since the last key, +2048 when absolute values follow), then 1 char per axis (delta from the last
+//     key in POS_STEP / POS_STEP_Y / ANG_STEP steps, +2048) or 2 chars per axis absolute (first key, teleports, flicks).
+//     position on frames recorded on the ground stays within GROUND_TOL / GROUND_TOL_XZ: a bot forced a few mm above
+//     or into the floor (or a slope) flickers between airborne and grounded
+//   steps: a key whenever buttons, throttle or health change. gap (1), buttons (2, +HEALTH_FLAG when health follows),
+//     [health * 1024 (2)], throttle x z (1)
+//   every channel has a key on frame 0 and on the last frame, gaps stay under 2048
+// then a directory: facing and steps start (2 chars each) of every track, so the import reads the 3 channels at once
+// positions cover the fixed world range -2048 to 2048 in 1/4096 m steps (0.24 mm), maps fit well inside it
+
+// channels of a track, and the cursors the import reads them with (impCur)
+enum Chan
+{
+    Pos,
+    Look,
+    Steps,
+    Header
+}
+
+globalvar String charTable;      // 4096 visible symbol/punctuation chars. plain, too large to sit in the ! values that are written often
+globalvar Number encMax!;        // 4096^2 - 1, built at runtime since big literals get clamped
+
+Number IMPORT_ARRAY:    15;     // trees per importData entry and per pasted rule, a rule cant be pasted above ~98 KB (15 is ~76 KB)
+Number TREE_CHARS:      1628;   // chars per tree, 4 outer strings of 119 and 9 inner of 128
+Number TREE_STRINGS:    13;
+Number ENTRY_CHARS:     24420;  // IMPORT_ARRAY * TREE_CHARS, every entry but the last is full
+Number EXPORT_PER_TICK: 8;
+Number EXPORT_MAX_LOAD: 225;    // server load % the export waits under
+Number HEALTH_FLAG:     32768;  // buttons bit: health follows, only export when it changes
+
+Number POS_TOL:   0.0057;       // m per axis, ~1 cm overall
+Number POS_STEP:  0.001;        // m per delta step
+Number POS_STEP_Y: 0.000244140625;  // height steps are 1/4096 m, the absolute grid, so a height on the ground repeats exactly
+Number GROUND_TOL: 0.0002;      // m, height on frames recorded on the ground
+Number GROUND_TOL_XZ: 0.001;    // m, horizontal on frames recorded on the ground
+Number ANG_TOL:   0.01;         // degrees, aim kept as close as the delta steps allow
+Number ANG_STEP:  0.01;
+Number DELTA_LIM: 2000;         // steps a key may be from the last one before the curve is cut, 1 char holds -2048 to 2047
+Number KEY_GAP_MAX: 2047;
+Number OPEN:      100000;       // slope bounds of an empty door
+
+Number WORLD_HALF: 2048;
+Number Quant(Number v): Clamp(Near((v + WORLD_HALF) * 4096), 0, encMax);
+Number Wrap(Number a): a - Near(a / 360) * 360;     // angle into -180 to 180
+Number MaxAbs(Vector v): Max(Abs(v.X), Max(Abs(v.Y), Abs(v.Z)));
+
+// absolute keys as the import decodes them, the export uses the same so its next delta starts from what the import has
+Vector DecodePos(Vector a): a / 4096 - Vector(WORLD_HALF, WORLD_HALF, WORLD_HALF);
+Vector DecodeLook(Number prevYaw, Number yaw, Number pitch): Vector(prevYaw + Wrap(yaw / encMax * 360 - 180 - prevYaw), pitch / encMax * 180 - 90, 0);
+
+void InitCharTable()
+{
+    charTable = "!#$%&'()*+,-./:;=?@[]^_`|~¡¢£¤¥¦§¨©«¬®¯°±´¶·¸»¿×÷˂˃˄˅˒˓˔˕˖˗˘˙˚˛˜˝˞˟˥˦˧˨˩˪˫˭˯˰˱˲˳˴˵˶˷˸˹˺˻˼˽˾˿͵΄϶҂՚՛՜՝՞՟։֊֍֎֏־׀׃׆׳״؆؇؈؉؊؋،؍؎؏؛؝؞؟٪" +
+        "٫٬٭۔۞۩۽۾܀܁܂܃܄܅܆܇܈܉܊܋܌܍߶߷߸߹߾߿࠰࠱࠲࠳࠴࠵࠶࠷࠸࠹࠺࠻࠼࠽࠾࡞࢈।॥॰৲৳৺৻৽੶૰૱୰௳௴௵௶௷௸௹௺౷౿಄൏൹෴฿๏๚๛༁༂༃༄༅༆༇༈༉༊་༌།༎༏༐༑༒༓༔༕༖༗༚༛༜༝༞༟༴༶༸༺༻༼༽྅྾྿࿀࿁࿂࿃࿄࿅࿇࿈࿉࿊࿋࿌࿎࿏" +
+        "࿐࿑࿒࿓࿔࿕࿖࿗࿘࿙࿚၊။၌၍၎၏႞႟჻፠፡።፣፤፥፦፧፨᎐᎑᎒᎓᎔᎕᎖᎗᎘᎙᐀᙭᙮᚛᚜᛫᛬᛭᜵᜶។៕៖៘៙៚៛᠀᠁᠂᠃᠄᠅᠆᠇᠈᠉᠊᥀᥄᥅᧞᧟᧠᧡᧢᧣᧤᧥᧦᧧᧨᧩᧪᧫᧬᧭᧮᧯᧰᧱᧲᧳᧴᧵᧶᧷᧸᧹᧺᧻᧼᧽᧾᧿᨞᨟᪠᪡᪢᪣᪤᪥᪦᪨᪩᪪᪫᪬᪭᭚᭛᭜᭝᭞᭟᭠᭡᭢" +
+        "᭣᭤᭥᭦᭧᭨᭩᭪᭴᭵᭶᭷᭸᭹᭺᭻᭼᭽᭾᯼᯽᯾᯿᰻᰼᰽᰾᰿᱾᱿᳀᳁᳂᳃᳄᳅᳆᳇᳓᾽᾿῀῾‐‑‒–—―‖‗‘’‚‛“”„‟†‡•‣․‥…‧‰‱′″‴‵‶‷‸‹›※‼‽‾‿⁀⁁⁂⁃⁄⁅⁆⁇⁈⁉⁊⁋⁌⁍⁎⁏⁐⁑⁒⁓⁔⁕⁖⁗⁘⁙⁚⁛⁜⁝⁞⁺⁻⁼⁽⁾₊₋₌₍₎₠₡₢₣" +
+        "₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀℀℁℃℄℅℆℈℉℔№℗℘℞℟℠℡™℣℥℧℩℮℺℻⅀⅁⅂⅃⅄⅊⅋⅌⅍⅏↊↋←↑→↓↔↕↖↗↘↙↜↝↞↟↠↡↢↣↤↥↦↧↨↩↪↫↬↭↯↰↱↲↳↴↵↶↷↸↹↺↻↼↽↾↿⇀⇁⇂⇃⇄⇅⇆⇇⇈⇉⇊⇋⇌⇐⇑⇒⇓⇔" +
+        "⇕⇖⇗⇘⇙⇚⇛⇜⇝⇞⇟⇠⇡⇢⇣⇤⇥⇦⇧⇨⇩⇪⇫⇬⇭⇮⇯⇰⇱⇲⇳⇴⇵⇶⇷⇸⇹⇺⇻⇼⇽⇾⇿∀∁∂∃∅∆∇∈∊∋∍∎∏∐∑−∓∔∕∖∗∘∙√∛∜∝∞∟∠∡∢∣∥∧∨∩∪∫∬∭∮∯∰∱∲∳∴∵∶∷∸∹∺∻∼∽∾∿≀≂≃≅≆≈≊≋≌≍≎≏≐≑≒≓≔≕≖≗≘≙≚≛≜≝" +
+        "≞≟≡≣≤≥≦≧≨≩≪≫≬≲≳≶≷≺≻≼≽≾≿⊂⊃⊆⊇⊊⊋⊌⊍⊎⊏⊐⊑⊒⊓⊔⊕⊖⊗⊘⊙⊚⊛⊜⊝⊞⊟⊠⊡⊢⊣⊤⊥⊦⊧⊨⊩⊪⊫⊰⊱⊲⊳⊴⊵⊶⊷⊸⊹⊺⊻⊼⊽⊾⊿⋀⋁⋂⋃⋄⋅⋆⋇⋈⋉⋊⋋⋌⋍⋎⋏⋐⋑⋒⋓⋔⋕⋖⋗⋘⋙⋚⋛⋜⋝⋞⋟⋤⋥⋦⋧⋨⋩⋮⋯⋰⋱⋲⋳⋴⋵⋶⋷⋸⋹⋺" +
+        "⋻⋼⋽⋾⋿⌀⌁⌂⌃⌄⌅⌆⌇⌈⌉⌊⌋⌌⌍⌎⌏⌐⌑⌒⌓⌔⌕⌖⌗⌘⌙⌚⌛⌜⌝⌞⌟⌠⌡⌢⌣⌤⌥⌦⌧⌨⌫⌬⌭⌮⌯⌰⌱⌲⌳⌴⌵⌶⌷⌸⌹⌺⌻⌼⌽⌾⌿⍀⍁⍂⍃⍄⍅⍆⍇⍈⍉⍊⍋⍌⍍⍎⍏⍐⍑⍒⍓⍔⍕⍖⍗⍘⍙⍚⍛⍜⍝⍞⍟⍠⍡⍢⍣⍤⍥⍦⍧⍨⍩⍪⍫⍬⍭⍮⍯⍰⍱⍲⍳⍴⍵⍶⍷⍸⍹⍺⍻⍼" +
+        "⍽⍾⍿⎀⎁⎂⎃⎄⎅⎆⎇⎈⎉⎊⎋⎌⎍⎎⎏⎐⎑⎒⎓⎔⎕⎖⎗⎘⎙⎚⎛⎜⎝⎞⎟⎠⎡⎢⎣⎤⎥⎦⎧⎨⎩⎪⎫⎬⎭⎮⎯⎰⎱⎲⎳⎴⎵⎶⎷⎸⎹⎺⎻⎼⎽⎾⎿⏀⏁⏂⏃⏄⏅⏆⏇⏈⏉⏊⏋⏌⏍⏎⏏⏐⏑⏒⏓⏔⏕⏖⏗⏘⏙⏚⏛⏜⏝⏞⏟⏠⏡⏢⏣⏤⏥⏦⏧⏨⏩⏪⏫⏬⏭⏮⏯⏰⏱⏲⏳⏴⏵⏶⏷⏸⏹⏺⏻⏼" +
+        "⏽⏾⏿␀␁␂␃␄␅␆␇␈␉␊␋␌␍␎␏␐␑␒␓␔␕␖␗␘␙␚␛␜␝␞␟␠␡␢␣␤␥␦⑀⑁⑂⑃⑄⑅⑆⑇⑈⑉⑊⒜⒝⒞⒟⒠⒡⒢⒣⒤⒥⒦⒧⒨⒩⒪⒫⒬⒭⒮⒯⒰⒱⒲⒳⒴⒵ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦ" +
+        "ⓧⓨⓩ─━│┃┄┅┆┇┈┉┊┋┌┍┎┏┐┑┒┓└┕┖┗┘┙┚┛├┝┞┟┠┡┢┣┤┥┦┧┨┩┪┫┬┭┮┯┰┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼" +
+        "╽╾╿▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▐░▒▓▔▕▖▗▘▙▚▛▜▝▞▟■□▢▣▤▥▦▧▨▩▪▫▬▭▮▯▰▱▲△▴▵▶▷▸▹►▻▼▽▾▿◀◁◂◃◄◅◆◇◈◉◊○◌◍◎●◐◑◒◓◔◕◖◗◘◙◚◛◜◝◞◟◠◡◢◣◤◥◦◧◨◩◪◫◬◭◮◯◰◱◲◳◴◵◶◷◸◹◺◻◼" +
+        "◽◾◿☀☁☂☃☄★☆☇☈☉☊☋☌☍☎☏☐☑☒☓☔☕☖☗☘☙☚☛☜☝☞☟☠☡☢☣☤☥☦☧☨☩☪☫☬☭☮☯☰☱☲☳☴☵☶☷☸☹☺☻☼☽☾☿♀♁♂♃♄♅♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼" +
+        "♽♾♿⚀⚁⚂⚃⚄⚅⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟⚠⚡⚢⚣⚤⚥⚦⚧⚨⚩⚪⚫⚬⚭⚮⚯⚰⚱⚲⚳⚴⚵⚶⚷⚸⚹⚺⚻⚼⚽⚾⚿⛀⛁⛂⛃⛄⛅⛆⛇⛈⛉⛊⛋⛌⛍⛎⛏⛐⛑⛒⛓⛔⛕⛖⛗⛘⛙⛚⛛⛜⛝⛞⛟⛠⛡⛢⛣⛤⛥⛦⛧⛨⛩⛪⛫⛬⛭⛮⛯⛰⛱⛲⛳⛴⛵⛶⛷⛸⛹⛺⛻⛼" +
+        "⛽⛾⛿✀✁✂✃✄✅✆✇✈✉✊✋✌✍✎✏✐✑✒✓✔✕✖✗✘✙✚✛✜✝✞✟✠✡✢✣✤✥✦✧✨✩✪✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❄❅❆❇❈❉❊❋❌❍❎❏❐❑❒❓❔❕❖❗❘❙❚❛❜❝❞❟❠❡❢❣❤❥❦❧❨❩❪❫❬❭❮❯❰❱❲❳❴❵➔➕➖➗➘➙➚" +
+        "➛➜➝➞➟➠➡➢➣➤➥➦➧➨➩➪➫➬➭➮➯➰➱➲➳➴➵➶➷➸➹➺➻➼➽➾➿⟀⟁⟂⟃⟄⟅⟆⟇⟈⟉⟊⟋⟌⟍⟎⟏⟐⟑⟒⟓⟔⟕⟖⟗⟘⟙⟚⟛⟜⟝⟞⟟⟠⟡⟢⟣⟤⟥⟦⟧⟨⟩⟪⟫⟬⟭⟮⟯⟰⟱⟲⟳⟴⟵⟶⟷⟸⟹⟺⟻⟼⟽⟾⟿⠀⠁⠂⠃⠄⠅⠆⠇⠈⠉⠊⠋⠌⠍⠎⠏⠐⠑⠒⠓⠔⠕⠖⠗⠘⠙⠚" +
+        "⠛⠜⠝⠞⠟⠠⠡⠢⠣⠤⠥⠦⠧⠨⠩⠪⠫⠬⠭⠮⠯⠰⠱⠲⠳⠴⠵⠶⠷⠸⠹⠺⠻⠼⠽⠾⠿⡀⡁⡂⡃⡄⡅⡆⡇⡈⡉⡊⡋⡌⡍⡎⡏⡐⡑⡒⡓⡔⡕⡖⡗⡘⡙⡚⡛⡜⡝⡞⡟⡠⡡⡢⡣⡤⡥⡦⡧⡨⡩⡪⡫⡬⡭⡮⡯⡰⡱⡲⡳⡴⡵⡶⡷⡸⡹⡺⡻⡼⡽⡾⡿⢀⢁⢂⢃⢄⢅⢆⢇⢈⢉⢊⢋⢌⢍⢎⢏⢐⢑⢒⢓⢔⢕⢖⢗⢘⢙⢚" +
+        "⢛⢜⢝⢞⢟⢠⢡⢢⢣⢤⢥⢦⢧⢨⢩⢪⢫⢬⢭⢮⢯⢰⢱⢲⢳⢴⢵⢶⢷⢸⢹⢺⢻⢼⢽⢾⢿⣀⣁⣂⣃⣄⣅⣆⣇⣈⣉⣊⣋⣌⣍⣎⣏⣐⣑⣒⣓⣔⣕⣖⣗⣘⣙⣚⣛⣜⣝⣞⣟⣠⣡⣢⣣⣤⣥⣦⣧⣨⣩⣪⣫⣬⣭⣮⣯⣰⣱⣲⣳⣴⣵⣶⣷⣸⣹⣺⣻⣼⣽⣾⣿⤀⤁⤂⤃⤄⤅⤆⤇⤈⤉⤊⤋⤌⤍⤎⤏⤐⤑⤒⤓⤔⤕⤖⤗⤘⤙⤚" +
+        "⤛⤜⤝⤞⤟⤠⤡⤢⤣⤤⤥⤦⤧⤨⤩⤪⤫⤬⤭⤮⤯⤰⤱⤲⤳⤴⤵⤶⤷⤸⤹⤺⤻⤼⤽⤾⤿⥀⥁⥂⥃⥄⥅⥆⥇⥈⥉⥊⥋⥌⥍⥎⥏⥐⥑⥒⥓⥔⥕⥖⥗⥘⥙⥚⥛⥜⥝⥞⥟⥠⥡⥢⥣⥤⥥⥦⥧⥨⥩⥪⥫⥬⥭⥮⥯⥰⥱⥲⥳⥴⥵⥶⥷⥸⥹⥺⥻⥼⥽⥾⥿⦀⦁⦂⦃⦄⦅⦆⦇⦈⦉⦊⦋⦌⦍⦎⦏⦐⦑⦒⦓⦔⦕⦖⦗⦘⦙⦚" +
+        "⦛⦜⦝⦞⦟⦠⦡⦢⦣⦤⦥⦦⦧⦨⦩⦪⦫⦬⦭⦮⦯⦰⦱⦲⦳⦴⦵⦶⦷⦸⦹⦺⦻⦼⦽⦾⦿⧀⧁⧂⧃⧄⧅⧆⧇⧈⧉⧊⧋⧌⧍⧎⧏⧐⧑⧒⧓⧔⧕⧖⧗⧘⧙⧚⧛⧜⧝⧞⧟⧠⧡⧢⧣⧤⧥⧦⧧⧨⧩⧪⧫⧬⧭⧮⧯⧰⧱⧲⧳⧴⧵⧶⧷⧸⧹⧺⧻⧼⧽⧾⧿⨀⨁⨂⨃⨄⨅⨆⨇⨈⨉⨊⨋⨌⨍⨎⨏⨐⨑⨒⨓⨔⨕⨖⨗⨘⨙⨚" +
+        "⨛⨜⨝⨞⨟⨠⨡⨢⨣⨤⨥⨦⨧⨨⨩⨪⨫⨬⨭⨮⨯⨰⨱⨲⨳⨴⨵⨶⨷⨸⨹⨺⨻⨼⨽⨾⨿⩀⩁⩂⩃⩄⩅⩆⩇⩈⩉⩊⩋⩌⩍⩎⩏⩐⩑⩒⩓⩔⩕⩖⩗⩘⩙⩚⩛⩜⩝⩞⩟⩠⩡⩢⩣⩤⩥⩦⩧⩨⩩⩪⩫⩬⩭⩮⩯⩰⩱⩲⩳⩴⩵⩶⩷⩸⩹⩺⩻⩼⩽⩾⩿⪀⪁⪂⪃⪄⪅⪆⪇⪈⪉⪊⪋⪌⪍⪎⪏⪐⪑⪒⪓⪔⪕⪖⪗⪘⪙⪚" +
+        "⪛⪜⪝⪞⪟⪠⪡⪢⪣⪤⪥⪦⪧⪨⪩⪪⪫⪬⪭⪮⪯⪰⪱⪲⪳⪴⪵⪶⪷⪸⪹⪺⪻⪼⪽⪾⪿⫀⫁⫂⫃⫄⫅⫆⫇⫈⫉⫊⫋⫌⫍⫎⫏⫐⫑⫒⫓⫔⫕⫖⫗⫘⫙⫚⫛⫝⫞⫟⫠⫡⫢⫣⫤⫥⫦⫧⫨⫩⫪⫫⫬⫭⫮⫯⫰⫱⫲⫳⫴⫵⫶⫷⫸⫹⫺⫻⫼⫽⫾⫿⬀⬁⬂⬃⬄⬅⬆⬇⬈⬉⬊⬋⬌⬍⬎⬏⬐⬑⬒⬓⬔⬕⬖⬗⬘⬙⬚⬛" +
+        "⬜⬝⬞⬟⬠⬡⬢⬣⬤⬥⬦⬧⬨⬩⬪⬫⬬⬭⬮⬯⬰⬱⬲⬳⬴⬵⬶⬷⬸⬹⬺⬻⬼⬽⬾⬿⭀⭁⭂⭃⭄⭅⭆⭇⭈⭉⭊⭋⭌⭍⭎⭏⭐⭑⭒⭓⭔⭕⭖⭗⭘⭙⭚⭛⭜⭝⭞⭟⭠⭡⭢⭣⭤⭥⭦⭧⭨⭩⭪⭫⭬⭭⭮⭯⭰⭱⭲⭳⭶⭷⭸⭹⭺⭻⭼⭽⭾⭿⮀⮁⮂⮃⮄⮅⮆⮇⮈⮉⮊⮋⮌⮍⮎⮏⮐⮑⮒⮓⮔⮕⮗⮘⮙⮚⮛⮜⮝⮞" +
+        "⮟⮠⮡⮢⮣⮤⮥⮦⮧⮨⮩⮪⮫⮬⮭⮮⮯⮰⮱⮲⮳⮴⮵⮶⮷⮸⮹⮺⮻⮼⮽⮾⮿⯀⯁⯂⯃⯄⯅⯆⯇⯈⯉⯊⯋⯌⯍⯎⯏⯐⯑⯒⯓⯔⯕⯖⯗⯘⯙⯚⯛⯜⯝⯞⯟⯠⯡⯢⯣⯤⯥⯦⯧⯨⯩⯪⯫⯬⯭⯮⯯⯰⯱⯲⯳⯴⯵⯶⯷⯸⯹⯺⯻⯼⯽⯾⯿⳥⳦⳧⳨⳩⳪⳹⳺⳻⳼⳾⳿⵰⸀⸁⸂⸃⸄⸅⸆⸇⸈⸉⸊⸋⸌⸍⸎⸏⸐⸑" +
+        "⸒⸓⸔⸕⸖⸗⸘⸙⸚⸛⸜⸝⸞⸟⸠⸡⸢⸣⸤⸥⸦⸧⸨⸩⸪⸫⸬⸭⸮⸰⸱⸲⸳⸴⸵⸶⸷⸸⸹⸺⸻⸼⸽⸾⸿⹀⹁⹂⹃⹄⹅⹆⹇⹈⹉⹊⹋⹌⹍⹎⹏⹐⹑⹒⹓⹔⹕⹖⹗⹘⹙⹚⹛⹜⹝⺀⺁⺂⺃⺄⺅⺆⺇⺈⺉⺊⺋⺌⺍⺎⺏⺐⺑⺒⺓⺔⺕⺖⺗⺘⺙⺛⺜⺝⺞⺟⺠⺡⺢⺣⺤⺥⺦⺧⺨⺩⺪⺫⺬⺭⺮⺯⺰⺱⺲⺳⺴⺵" +
+        "⺶⺷⺸⺹⺺⺻⺼⺽⺾⺿⻀⻁⻂⻃⻄⻅⻆⻇⻈⻉⻊⻋⻌⻍⻎⻏⻐⻑⻒⻓⻔⻕⻖⻗⻘⻙⻚⻛⻜⻝⻞⻟⻠⻡⻢⻣⻤⻥⻦⻧⻨⻩⻪⻫⻬⻭⻮⻯⻰⻱⻲⻳⼀⼁⼂⼃⼄⼅⼆⼇⼈⼉⼊⼋⼌⼍⼎⼏⼐⼑⼒⼓⼔⼕⼖⼗⼘⼙⼚⼛⼜⼝⼞⼟⼠⼡⼢⼣⼤⼥⼦⼧⼨⼩⼪⼫⼬⼭⼮⼯⼰⼱⼲⼳⼴⼵⼶⼷⼸⼹⼺⼻⼼⼽⼾⼿⽀⽁" +
+        "⽂⽃⽄⽅⽆⽇⽈⽉⽊⽋⽌⽍⽎⽏⽐⽑⽒⽓⽔⽕⽖⽗⽘⽙⽚⽛⽜⽝⽞⽟⽠⽡⽢⽣⽤⽥⽦⽧⽨⽩⽪⽫⽬⽭⽮⽯⽰⽱⽲⽳⽴⽵⽶⽷⽸⽹⽺⽻⽼⽽⽾⽿⾀⾁⾂⾃⾄⾅⾆⾇⾈⾉⾊⾋⾌⾍⾎⾏⾐⾑⾒⾓⾔⾕⾖⾗⾘⾙⾚⾛⾜⾝⾞⾟⾠⾡⾢⾣⾤⾥⾦⾧⾨⾩⾪⾫⾬⾭⾮⾯⾰⾱⾲⾳⾴⾵⾶⾷⾸⾹⾺⾻⾼⾽⾾⾿⿀⿁" +
+        "⿂⿃⿄⿅⿆⿇⿈⿉⿊⿋⿌⿍⿎⿏⿐⿑⿒⿓⿔⿕⿰⿱⿲⿳⿴⿵⿶⿷⿸⿹⿺⿻、。〃〄〈〉《》「」『』【】〒〓〔〕〖〗〘〙〚〛〜〝〞〟〠〰〶〷〽〾〿゛゜゠・㆐㆑㆖㆗㆘㆙㆚㆛㆜㆝㆞㆟㇀㇁㇂㇃㇄㇅㇆㇇㇈㇉㇊㇋㇌㇍㇎㇏㇐㇑㇒㇓㇔㇕㇖㇗㇘㇙㇚㇛㇜㇝㇞㇟㇠㇡㇢㇣㈀㈁㈂㈃㈄㈅㈆㈇㈈" +
+        "㈉㈊㈋㈌㈍㈎㈏㈐㈑㈒㈓㈔㈕㈖㈗㈘㈙㈚㈛㈜㈝㈞㈪㈫㈬㈭㈮㈯㈰㈱㈲㈳㈴㈵㈶㈷㈸㈹㈺㈻㈼㈽㈾㈿㉀㉁㉂㉃㉄㉅㉆㉇㉐㉠㉡㉢㉣㉤㉥㉦㉧㉨㉩㉪㉫㉬㉭㉮㉯㉰㉱㉲㉳㉴㉵㉶㉷㉸㉹㉺㉻㉼㉽㉾㉿㊊㊋㊌㊍㊎㊏㊐㊑㊒㊓㊔㊕㊖㊗㊘㊙㊚㊛㊜㊝㊞㊟㊠㊡㊢㊣㊤㊥㊦㊧㊨㊩㊪㊫㊬㊭㊮㊯㊰㋀㋁㋂㋃" +
+        "㋄㋅㋆㋇㋈㋉㋊㋋㋌㋍㋎㋏㋐㋑㋒㋓㋔㋕㋖㋗㋘㋙㋚㋛㋜㋝㋞㋟㋠㋡㋢㋣㋤㋥㋦㋧㋨㋩㋪㋫㋬㋭㋮㋯㋰㋱㋲㋳㋴㋵㋶㋷㋸㋹㋺㋻㋼㋽㋾㋿㌀㌁㌂㌃㌄㌅㌆㌇㌈㌉㌊㌋㌌㌍㌎㌏㌐㌑㌒㌓㌔㌕㌖㌗㌘㌙㌚㌛㌜㌝㌞㌟㌠㌡㌢㌣㌤㌥㌦㌧㌨㌩㌪㌫㌬㌭㌮㌯㌰㌱㌲㌳㌴㌵㌶㌷㌸㌹㌺㌻㌼㌽㌾㌿㍀㍁㍂㍃" +
+        "㍄㍅㍆㍇㍈㍉㍊㍋㍌㍍㍎㍏㍐㍑㍒㍓㍔㍕㍖㍗㍘㍙㍚㍛㍜㍝㍞㍟㍠㍡㍢㍣㍤㍥㍦㍧㍨㍩㍪㍫㍬㍭㍮㍯㍰㍱㍲㍳㍴㍵㍶㍷㍸㍹㍺㍻㍼㍽㍾㍿㎀㎁㎂㎃㎄㎅㎆㎇㎈㎉㎊㎋㎌㎍㎎㎏㎐㎑㎒㎓㎔㎕㎖㎗㎘㎙㎚㎛㎜㎝㎞㎟㎠㎡㎢㎣㎤㎥㎦㎧㎨㎩㎪㎫㎬㎭㎮㎯㎰㎱㎲㎳㎴㎵㎶㎷㎸㎹㎺㎻㎼㎽㎾㎿㏀㏁㏂㏃" +
+        "㏄㏅㏆㏇㏈㏉㏊㏋㏌㏍㏎㏏㏐㏑㏒㏓㏔㏕㏖㏗㏘㏙㏚㏛㏜㏝㏞㏟㏠㏡㏢㏣㏤㏥㏦㏧㏨㏩㏪㏫㏬㏭㏮㏯㏰㏱㏲㏳㏴㏵㏶㏷㏸㏹㏺㏻㏼㏽㏾㏿䷀䷁䷂䷃䷄䷅䷆䷇䷈䷉䷊䷋䷌䷍䷎䷏䷐䷑䷒䷓䷔䷕䷖䷗䷘䷙䷚䷛䷜䷝䷞䷟䷠䷡䷢䷣䷤䷥䷦䷧䷨䷩䷪䷫䷬䷭䷮䷯䷰䷱䷲䷳䷴䷵䷶䷷䷸䷹䷺䷻䷼䷽䷾䷿꒐꒑꒒꒓";
+    encMax = 4096;
+    encMax = encMax * encMax - 1;
+}
+
+playervar Boolean tracksBusy!; // an export or import is running, the timeline and recording stay closed
+playervar Number expProgress;
+playervar String ioStatus;      // what the running export or import is doing, shown under its progress
+playervar String expLine;
+playervar String expPending;
+playervar Number expStrings!;
+playervar Number expStamp!;
+playervar Number expChars!;     // chars written so far, where the next channel starts
+playervar Number expHud!;       // the export's HUD text. not a local, a local is reset when a restarted export begins
+globalvar Number exportCount!;  // exports this game, the inspector log keeps all of them
+
+// string q of the stream, at q % TREE_STRINGS in its tree: 0, 1, 5 and 9 are outer strings, the rest inner
+Boolean ExpOuter(Number q): q % TREE_STRINGS == 0 || q % TREE_STRINGS % 4 == 1;
+
+void ExpLog(String s!) playervar "export - log"
+{
+    EnableInspectorRecording();
+    LogToInspector(s);
+    DisableInspectorRecording();
+}
+
+// conditions and actions that open the rule for importData entry e. it runs unless a higher stamp is already loaded,
+// and a higher stamp than the loaded one clears the data first, so the parts of one export can run in any order
+void ExpRuleHead(Number e!) playervar "export - rule head"
+{
+    ExpLog(<'*/ conditions { Global.importStamp <= <0>; } /*', expStamp>);
+    ExpLog(<'*/ actions { If(Global.importStamp < <0>); Global.importData = Empty Array; Global.importParts = 0; /*', expStamp>);
+    ExpLog(<'*/ Global.importStamp = <0>; End; Set Global Variable At Index(importData, <1>, Array( /*', expStamp, e>);
+}
+
+// the previous string is logged, with what closes it in its tree. an inner string ending its outer one closes it, the
+// last of a tree closes the tree. a full importData entry ends its rule and the next entry starts a new one, the boundary
+// is on one line so the timestamps between lines stay inside rules. entries hold exactly IMPORT_ARRAY trees, the import
+// finds a char by its index
+void ExpPush() playervar "export - push string"
+{
+    if (expStrings > 0)
+    {
+        Number pos! = (expStrings - 1) % TREE_STRINGS;
+        // an outer string ends in "{0}{1}{2}". OSTW reads {0} in its own strings as a format slot, so the "{" are inserted.
+        // a Custom String fills {0}, {1}, {2} one after another, and a later slot also fills its token in text an earlier
+        // one inserted, so the "{" go in through {2}, the last. OSTW drops and renumbers slots its text doesnt use
+        if (ExpOuter(expStrings - 1))
+            ExpLog(<'<0>Custom String(\"<1><2>0}<2>1}<2>2}\", /*', "*/ ", expPending, "{">);
+        else if (pos != TREE_STRINGS - 1)
+            ExpLog(<'*/ Custom String(\"<0>\")<1>, /*', expPending, pos % 4 == 0 ? ")" : "">);
+        else if (expStrings % (TREE_STRINGS * IMPORT_ARRAY) != 0)
+            ExpLog(<'*/ Custom String(\"<0>\"))), /*', expPending>);
+        else
+        {
+            ExpLog(<'*/ Custom String(\"<0>\"))))); } } rule(\"[IMPORT <1>] part <2>\") { event { Ongoing - Global; } /*', expPending, expStamp,
+                expStrings / (TREE_STRINGS * IMPORT_ARRAY) + 1>);
+            ExpRuleHead(expStrings / (TREE_STRINGS * IMPORT_ARRAY));
+        }
+    }
+    expPending = expLine;
+    expLine = "";
+    expStrings++;
+    MinWait();
+}
+
+// appends s to the stream, a full string is pushed and the rest goes on in the next
+void ExpAppend(String s!) playervar "export - append"
+{
+    expChars += StringLength(s);
+
+    while (true)
+    {
+        Number room! = (ExpOuter(expStrings) ? 119 : 128) - StringLength(expLine);
+        if (StringLength(s) < room)
+            break;
+        expLine = expLine + StringSlice(s, 0, room);
+        s = StringSlice(s, room, StringLength(s) - room);
+        ExpPush();
+    }
+    
+    expLine = expLine + s;
+}
+
+void ExpPut(Number[] v!, Number width!) playervar "export - put"
+{
+    String s! = "";
+
+    for (Number k! = 0; k < v.Length; k++)
+        s = s + (width == 1 ? charTable.CharAt(v[k]) : charTable.CharAt(Floor(v[k] / 4096)) + charTable.CharAt(v[k] % 4096));
+
+    ExpAppend(s);
+}
+
+// keys of the track in recTake, expN frames. the channel being written, and its last key as the import reconstructs it
+playervar Number expN!;
+playervar Number expCh!;        // Chan.Pos or Chan.Look
+playervar Number expKf!;        // frame of the last key, -1 before the first
+playervar Vector expKv!;
+playervar Vector expV!;         // value read by ExpRead
+playervar Vector expT!;         // and its tolerance per axis
+playervar Vector expQ!;         // delta step per axis of the channel
+playervar Vector expLo!;        // slopes (per frame, per axis) a key on the current frame may take so every frame since
+playervar Vector expHi!;        // the last key stays within tolerance. the curve is cut when they cross
+playervar Number expDone!;      // frames encoded, for the progress
+playervar Number expTotal!;
+
+void ExpTick() playervar "export - tick"
+{
+    expDone++;
+    if (expDone % EXPORT_PER_TICK == 0)
+    {
+        expProgress = Floor(expDone / expTotal * 100);
+        MinWait();
+        WaitUntil(ServerLoad() < EXPORT_MAX_LOAD, 2);
+    }
+}
+
+Vector ExpInSteps(Vector d): Vector(d.X / expQ.X, d.Y / expQ.Y, d.Z / expQ.Z);
+
+// frame s of channel expCh into expV and its tolerance into expT. yaw is taken around the last keys, so a curve never
+// wraps. position is held tight on frames recorded on the ground, on a slope a horizontal error is also a height error
+void ExpRead(Number s!) playervar "export - read"
+{
+    tickI = Floor(s / CHUNK_SIZE);
+    tickJ = s % CHUNK_SIZE;
+    expV = expCh == Chan.Pos ? recTake[tickI][tickJ].Pos : Vector(expKv.X + Wrap(recTake[tickI][tickJ].Look.X - expKv.X), recTake[tickI][tickJ].Look.Y, 0);
+    expT = expCh == Chan.Look
+        ? Vector(ANG_TOL, ANG_TOL, 0)
+        : HasBit(recTake[tickI][tickJ].Ctrl.Y, BIT_GROUND)
+            ? Vector(GROUND_TOL_XZ, GROUND_TOL, GROUND_TOL_XZ)
+            : Vector(POS_TOL, POS_TOL, POS_TOL);
+}
+
+// key on frame f with value v. a delta from the last key takes 1 char per axis, a value out of its range is written
+// absolute. expKv is computed the way the import computes it, so the next delta starts from what the import has
+void ExpKey(Number f!, Vector v!) playervar "export - key"
+{
+    Vector st! = ExpInSteps(v - expKv);
+    st = Vector(Near(st.X), Near(st.Y), Near(st.Z));
+    Boolean abs! = expKf < 0 || MaxAbs(st) > 2047;
+    ExpPut([f - Max(expKf, 0) + (abs ? 2048 : 0)], 1);
+    if (!abs)
+    {
+        ExpPut([st.X + 2048, st.Y + 2048, st.Z + 2048].Slice(0, 3 - expCh), 1);
+        expKv += Vector(st.X * expQ.X, st.Y * expQ.Y, st.Z * expQ.Z);
+    }
+    else
+    {
+        // position in 1/4096 m over the world range, facing as yaw and pitch over their range
+        Vector a! = expCh == Chan.Pos
+            ? Vector(Quant(v.X), Quant(v.Y), Quant(v.Z))
+            : Vector(Near((Wrap(v.X) + 180) / 360 * encMax), Near((v.Y + 90) / 180 * encMax), 0);
+        ExpPut([a.X, a.Y, a.Z].Slice(0, 3 - expCh), 2);
+        expKv = expCh == Chan.Pos ? DecodePos(a) : DecodeLook(expKv.X, a.X, a.Y);
+    }
+    expKf = f;
+}
+
+// position or facing (c) as a curve. each frame narrows the slopes a key on it may take (swinging door), when
+// none is left the previous frame gets a key in the middle of what was left, so every frame between keys is within
+// tolerance of the line through them. a frame a delta cant reach (teleport, flick) gets an absolute key of its own
+void ExpCurve(Number | Chan c!) playervar "export - curve"
+{
+    expCh = c;
+    expQ = c == Chan.Pos ? Vector(POS_STEP, POS_STEP_Y, POS_STEP) : Vector(ANG_STEP, ANG_STEP, ANG_STEP);
+    expKf = -1;
+    expKv = Vector(0, 0, 0);
+    ExpRead(0);
+    ExpKey(0, expV);
+    expLo = Vector(-OPEN, -OPEN, -OPEN);
+    expHi = Vector(OPEN, OPEN, OPEN);
+    ExpTick();
+
+    for (Number s! = 1; s < expN; s++)
+    {
+        ExpRead(s);
+        Number d! = s - expKf;
+        Vector lo! = (expV - expT - expKv) / d;
+        Vector hi! = (expV + expT - expKv) / d;
+        lo = Vector(Max(expLo.X, lo.X), Max(expLo.Y, lo.Y), Max(expLo.Z, lo.Z));
+        hi = Vector(Min(expHi.X, hi.X), Min(expHi.Y, hi.Y), Min(expHi.Z, hi.Z));
+
+        if (MaxAbs(ExpInSteps(expV - expKv)) > DELTA_LIM || d > KEY_GAP_MAX || lo.X > hi.X || lo.Y > hi.Y || lo.Z > hi.Z)
+        {
+            if (s - 1 > expKf)
+            {
+                ExpKey(s - 1, expKv + (expLo + expHi) / 2 * (s - 1 - expKf));
+                ExpRead(s);
+            }
+            if (MaxAbs(ExpInSteps(expV - expKv)) > DELTA_LIM)
+            {
+                ExpKey(s, expV);
+                expLo = Vector(-OPEN, -OPEN, -OPEN);
+                expHi = Vector(OPEN, OPEN, OPEN);
+            }
+            else
+            {
+                expLo = expV - expT - expKv;
+                expHi = expV + expT - expKv;
+            }
+        }
+        else
+        {
+            expLo = lo;
+            expHi = hi;
+        }
+        ExpTick();
+    }
+    if (expN - 1 > expKf)
+        ExpKey(expN - 1, expKv + (expLo + expHi) / 2 * (expN - 1 - expKf));
+}
+
+void ExportTracks() playervar "export - export"
+{
+    Number expHudProg!;
+    StopAll();
+    StoreTrackFlags(focusedTrack, flags);
+    Number[] ids! = TRACK_IDS.Filter(t => trackFrames[t] > 0);
+    if (ids.Length == 0)
+    {
+        SmallMessage(player, "Nothing to export, record something first");
+        return;
+    }
+
+    // an export started during the last ones final wait restarts this, the last ones text is still up
+    if (expProgress < 0)
+        DestroyHudText(expHud);
+
+    tracksBusy = true;
+    expProgress = 0;
+    CloseTimeline();
+    CreateHudText(
+        VisibleTo:      player,
+        Text:           local.expProgress >= 0
+                            ? <" \n\n\nExporting <0>%", local.expProgress>
+                            : exportCount > 1
+                                ? " \n\n\nExported!\n1. Open Inspector\n2. Click \"copy to clipboard all log\"\n3. Delete all before last DELETE line\n4. Paste into lobby"
+                                : " \n\n\nExported!\n1. Open Inspector\n2. Click \"copy to clipboard all log\"\n3. Delete the first timestamp\n4. Paste rule(s) into lobby",
+        Location:       Location.Top,
+        SortOrder:      1,
+        TextColor:      Color.White,
+        Reevaluation:   HudTextRev.VisibleToAndString,
+        Spectators:     Spectators.VisibleNever);
+    expHud = LastTextID();
+    CreateProgressBarHudText(
+        VisibleTo:        player,
+        Value:            local.expProgress,
+        Text:             local.ioStatus,
+        Location:         Location.Top,
+        SortOrder:        2,
+        ProgressBarColor: Color.White,
+        Reevaluation:     ProgressBarHudEvaluation.VisibleToAndValues);
+    expHudProg = LastTextID();
+    ioStatus = "Writing the rule header";
+
+    Number frames! = 0;
+    String heroes! = "";
+    for (Number k! = 0; k < ids.Length; k++)
+    {
+        frames += trackFrames[ids[k]];
+        heroes = k == 0 ? <"<0>", trackHero[ids[k]]> : <"<0>, <1>", heroes, trackHero[ids[k]]>;
+    }
+    expDone = 0;
+    expTotal = frames * 3;
+
+    // rule title, every rule of the export keeps the stamp so its parts can be told apart from other export parts
+    expStamp = Near(Time() * 10);
+    String title! = <"[IMPORT <0>] <1> track<2>, <3> long, <4> frames, <5>", expStamp, ids.Length, ids.Length == 1 ? "" : "s",
+        FormattedFrameToSec(timelineFrames), frames, CurrentMap()>;
+    if (StringLength(title) + StringLength(heroes) + 3 <= 128)
+        title = <"<0> | <1>", title, heroes>;
+
+    expLine = "";
+    expPending = "";
+    expStrings = 0;
+    expChars = 0;
+
+    if (exportCount > 0)
+        ExpLog("/* ================================= !!!! DELETE EVERYTHING RIGHT BEFORE THIS COMMENT !!!! ================================== /*");
+
+    ExpLog(<'<0>rule(\"<1>\") { event { Ongoing - Global; } /*', exportCount > 0 ? "*/ " : "", title>);
+    exportCount++;
+    ExpRuleHead(0);
+
+    ExpPut([focusedTrack, ids.Length], 1);
+    ExpPut([trimStart, trimEnd], 2);
+
+    Number[] dir! = [];
+    for (Number k! = 0; k < ids.Length; k++)
+    {
+        Number t! = ids[k];
+        ioStatus = <"Track <0> <1>: flags", t + 1, trackHero[t]>;
+
+        ExpPut([t, AllHeroes().IndexOf(trackHero[t]), trackTeam[t]], 1);
+        ExpPut([trackStart[t], trackFrames[t]], 2);
+
+        Number[] flagList! = TrackFlagList(t);
+        ExpPut([flagList.Length], 1);
+        ExpPut(flagList, 2);
+
+        // the tracks samples, staged once (recording is blocked while exporting, nothing else uses recTake then)
+        LoadTrackStage(t);
+        expN = trackFrames[t];
+        ioStatus = <"Track <0> <1>: positions", t + 1, trackHero[t]>;
+        ExpCurve(Chan.Pos);
+        dir += expChars;
+        ioStatus = <"Track <0> <1>: aim", t + 1, trackHero[t]>;
+        ExpCurve(Chan.Look);
+        dir += expChars;
+        ioStatus = <"Track <0> <1>: buttons, movement and health", t + 1, trackHero[t]>;
+
+        // buttons, throttle and health, a key whenever one changes
+        Vector last! = Vector(-1, -1, -1);
+        Number lastHp! = -1;
+        expKf = 0;
+        for (Number s! = 0; s < expN; s++)
+        {
+            tickI = Floor(s / CHUNK_SIZE);
+            tickJ = s % CHUNK_SIZE;
+            Vector ctrl! = recTake[tickI][tickJ].Ctrl;
+            Number hp! = recTake[tickI][tickJ].Look.Z;
+            Vector v! = Vector(Near((ctrl.X + 1) * 2047.5), ctrl.Y, Near((ctrl.Z + 1) * 2047.5));
+
+            if (v != last || hp != lastHp || s == expN - 1 || s - expKf >= KEY_GAP_MAX)
+            {
+                ExpPut([s - expKf], 1);
+                if (hp != lastHp)
+                    ExpPut([v.Y + HEALTH_FLAG, Min(Near(hp * 1024), encMax)], 2);
+                else
+                    ExpPut([v.Y], 2);
+                ExpPut([v.X, v.Z], 1);
+                expKf = s;
+                last = v;
+                lastHp = hp;
+            }
+            ExpTick();
+        }
+    }
+    recTake = []; // the staged track would stay as stored data on top of the tracks
+
+    ioStatus = "Writing the track directory";
+
+    // the last tree is filled up so the directory ends it, its last string is then pushed and pending. String Slice
+    // returns at most 128 chars, so the filler goes in pieces
+    Number pad! = (TREE_CHARS - (expChars + dir.Length * 2) % TREE_CHARS) % TREE_CHARS;
+    while (pad > 0)
+    {
+        ExpAppend(StringSlice(charTable, 0, Min(pad, 128)));
+        pad -= 128;
+    }
+    ExpPut(dir, 2);
+
+    ExpLog(<'*/ Custom String(\"<0>\"))))); Global.importMap = Custom String(\"<1>\"); Global.importParts = <2>; } }', expPending, CurrentMap(),
+        Floor((expStrings - 1) / (TREE_STRINGS * IMPORT_ARRAY)) + 1>);
+
+    tracksBusy = false;
+    expProgress = -1;
+    DestroyProgressBarHudText(expHudProg);
+    Wait(15);
+    DestroyHudText(expHud);
+    expProgress = 0;
+}

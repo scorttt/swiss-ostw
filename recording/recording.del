@@ -1,0 +1,564 @@
+import "../main.del";
+
+playervar Boolean recordArmed;
+
+playervar Sample[] recChunk;    // chunk being recorded, moved into a take slot when full or when recording stops
+playervar Sample[] recMid;      // moved into recChunk when full
+playervar Sample[] recBuf;      // newest samples, moved into recMid when full
+playervar Number recTime!;
+playervar Number recOthers!;    // frames in the other tracks while recording, for MAX_TOTAL_SAMPLES
+playervar Number recTrimEnd!;   // trim end a retake keeps, 0 when none
+
+// recChunk into the next take slot, the slots go into storage when all are used
+void SlotRecChunk() playervar "rec - slot chunk"
+{
+    if (recSlotsUsed == REC_SLOTS)
+        FlushRecSlots();
+
+    switch (recSlotsUsed)
+    {
+        case 0:  recSlot0 = recChunk;  break;
+        case 1:  recSlot1 = recChunk;  break;
+        case 2:  recSlot2 = recChunk;  break;
+        case 3:  recSlot3 = recChunk;  break;
+        case 4:  recSlot4 = recChunk;  break;
+        case 5:  recSlot5 = recChunk;  break;
+        case 6:  recSlot6 = recChunk;  break;
+        case 7:  recSlot7 = recChunk;  break;
+        case 8:  recSlot8 = recChunk;  break;
+        case 9:  recSlot9 = recChunk;  break;
+        case 10: recSlot10 = recChunk; break;
+        case 11: recSlot11 = recChunk; break;
+        case 12: recSlot12 = recChunk; break;
+        case 13: recSlot13 = recChunk; break;
+        case 14: recSlot14 = recChunk; break;
+        case 15: recSlot15 = recChunk; break;
+        case 16: recSlot16 = recChunk; break;
+        case 17: recSlot17 = recChunk; break;
+        case 18: recSlot18 = recChunk; break;
+        default: recSlot19 = recChunk; break;
+    }
+    
+    recSlotsUsed++;
+    recChunk = [];
+}
+
+// the used take slots onto the end of recSlotTrack's storage in one append
+// the slots and the copy are emptied after left full they're stored data on top of the tracks that the limits dont count (stored data makes the load spikes)
+void FlushRecSlots() playervar "rec - flush slots"
+{
+    if (recSlotsUsed == 0)
+        return;
+
+    recTake = [recSlot0, recSlot1, recSlot2, recSlot3, recSlot4, 
+               recSlot5, recSlot6, recSlot7, recSlot8, recSlot9, 
+               recSlot10, recSlot11, recSlot12, recSlot13, recSlot14, 
+               recSlot15, recSlot16, recSlot17, recSlot18, recSlot19].Slice(0, recSlotsUsed);
+    
+    AppendTrackStage(recSlotTrack);
+    
+    recTake = [];
+    recSlot0 = [];  recSlot1 = [];  recSlot2 = [];  recSlot3 = [];  recSlot4 = [];
+    recSlot5 = [];  recSlot6 = [];  recSlot7 = [];  recSlot8 = [];  recSlot9 = [];
+    recSlot10 = []; recSlot11 = []; recSlot12 = []; recSlot13 = []; recSlot14 = [];
+    recSlot15 = []; recSlot16 = []; recSlot17 = []; recSlot18 = []; recSlot19 = [];
+    recSlotsUsed = 0;
+}
+
+// a new sample in recBuf up the levels. the sample count is a multiple of BUFFER_SIZE, recMid is full every MID_SIZE samples, a chunk every CHUNK_SIZE
+void RecLevelsUp() playervar "rec - level up"
+{
+    if (recBuf.Length == BUFFER_SIZE)
+    {
+        recMid += recBuf;
+        recBuf = [];
+        
+        if (recMid.Length == MID_SIZE)
+        {
+            recChunk += recMid;
+            recMid = [];
+            
+            if (recChunk.Length == CHUNK_SIZE)
+                SlotRecChunk();
+        }
+    }
+}
+
+// the partial levels too, then the take goes into the track's storage
+void RecLevelsFlush() playervar "rec - level flush"
+{
+    recMid += recBuf;
+    recBuf = [];
+    recChunk += recMid;
+    recMid = [];
+    
+    if (recChunk.Length > 0)
+        SlotRecChunk();
+
+    FlushRecSlots();
+}
+
+void BeginTake(Number t!) playervar "rec - begin take"
+{
+    ClearTrack(t);
+    recChunk = [];
+    recMid = [];
+    recBuf = [];
+    recSlotsUsed = 0;
+    recSlotTrack = t;
+}
+
+// a retake keeps the first kept samples of track t. whole chunks stay in storage, the rest of the next chunk goes back into the levels
+void BeginPunch(Number t!, Number kept!) playervar "rec - begin punch"
+{
+    LoadTrackStage(t);
+    BeginTake(t); // the staged copy keeps the samples
+    Number c! = Floor(kept / CHUNK_SIZE); // chunk the take starts in
+    Number mids! = Floor(kept % CHUNK_SIZE / MID_SIZE) * MID_SIZE;
+
+    // less than a mid goes through recBuf, so no level fills up here
+    recChunk = recTake[c].Slice(0, mids);
+    for (Number s! = mids; s < kept % CHUNK_SIZE; s++)
+    {
+        recBuf += recTake[c][s];
+        RecLevelsUp();
+    }
+
+    recTake = recTake.Slice(0, c);
+    AppendTrackStage(t);
+    recTake = [];
+}
+
+rule: "instant respawn"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (IsDead())
+if (!recording || OptOn(Opt.InstantRespawn))
+if (botOwner != player) // "bot playback" respawns the human playing FirstPerson
+{
+    Vector pos! = PosOf();
+    Vector facing! = Facing();
+    Respawn();
+    ApplyMovementState();
+    TeleportFacing(NearestWalkablePos(pos), facing);
+}
+
+// rule: "unkillable outside recording"
+// Event.OngoingPlayer
+// if (!IsDummyBot())
+// if (IsAlive())
+// if (HasStatus(player, Status.Unkillable) == recording)
+// {
+//     if (recording)
+//         ClearStatus(player, Status.Unkillable);
+//     else
+//         SetStatus(player, null, Status.Unkillable, 99999);
+// }
+
+Number RecHealth(): Min(opts[Opt.RecHealthValue], MaxHealth());
+
+playervar Number recHealthMax!;
+rule: "recording health follows hero"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (IsAlive())
+if (MaxHealth() > 0)
+if (MaxHealth() != recHealthMax)
+{
+    MinWait();
+    if (MaxHealth() > 0)
+    {
+        if (opts[Opt.RecHealthValue] == recHealthMax || opts[Opt.RecHealthValue] > MaxHealth())
+            opts[Opt.RecHealthValue] = MaxHealth();
+
+        recHealthMax = MaxHealth();
+    }
+    LoopIfConditionIsTrue();
+}
+
+rule: "recording health no damage"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (!recording)
+if (OptOn(Opt.RecHealth))
+{
+    SetDamageHealingReceived(0);
+    WaitUntil(recording || !OptOn(Opt.RecHealth), 99999);
+    SetDamageHealingReceived(100);
+}
+
+rule: "recording set health"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (!recording)
+if (!firstPerson)
+if (OptOn(Opt.RecHealth))
+if (IsAlive())
+if (Health() != RecHealth())
+{
+    SetPlayerHealth(player, RecHealth());
+}
+
+Number REC_COUNTDOWN: 3;
+playervar Number recCount!; // seconds left of the countdown, shown in the time elapsed text. 0 while not counting
+playervar Boolean preRolling!;
+Number PUNCH_POS_RADIUS: 0.50;
+Number PUNCH_AIM_DIST:   10;
+Number PUNCH_AIM_SIZE:   0.05; // sphere radius per meter
+playervar Number punchFrame!;
+playervar Vector punchPos!;
+playervar Vector punchDir!;
+playervar Vector punchAim!;
+playervar Number punchAimR!;
+playervar Number punchHealth!;
+playervar Boolean punchAir!; // the recording is in the air at that frame, the player is held at that spot until the recording actually starts, then let go at the recorded velocity
+playervar Vector punchVel!;
+playervar Boolean punchLocked!;
+
+Boolean CanRetake(Player p = player): HasRecording(p) && p.currFrame > p.recStart;
+Number TakeStart(Player p = player): p.punchFrame == -1 ? p.recStart : p.punchFrame;
+Boolean RecordRetakes(Player p = player): CanRetake(p) && (!p.recordArmed || p.punchFrame != -1);
+Boolean RetakeHeroMatches(Player p = player): HeroOf(p) == p.trackHero[p.focusedTrack];
+Boolean PunchInPlace(): DistanceBetween(Vector(PosOf().X, 0, PosOf().Z), Vector(punchPos.X, 0, punchPos.Z)) <= PUNCH_POS_RADIUS;
+Boolean PunchAimed():   DistanceBetween(EyePos() + Facing() * DistanceBetween(EyePos(), punchAim), punchAim) <= punchAimR;
+Boolean PunchLinedUp(): PunchInPlace() && PunchAimed();
+
+rule: "record countdown"
+Event.OngoingPlayer
+if (recordArmed)
+if (!timelineOpen)
+{
+
+    if (!RecordRetakes())
+        punchFrame = -1;
+
+    if (punchFrame != -1 && HeroOf() != trackHero[focusedTrack])
+    {
+        recordArmed = false;
+        SmallMessage(player, <"Track <0> needs <1>, change hero or replace the whole track", focusedTrack + 1, trackHero[focusedTrack]>);
+        return;
+    }
+
+    // take replaces the focused track, only other tracks count toward MAX_TOTAL_SAMPLES
+    recOthers = 0;
+    
+    for (Number t! = 0; t < MAX_TRACKS; t++)
+    {
+        if (t != focusedTrack)
+            recOthers += trackFrames[t];
+    }
+    
+    if (recOthers >= MAX_TOTAL_SAMPLES)
+    {
+        recordArmed = false;
+        SmallMessage(player, "Recording limit reached! 10 minute budget for all tracks, delete a track first");
+        return;
+    }
+
+    StopAll();
+    orbiting = false;
+
+    if (firstPerson)
+    {
+        FirstPersonRelease();
+        WaitUntil(!firstPersonReturn, 1);
+    }
+
+    DestroyTrackBot(focusedTrack);
+
+    Number from! = currFrame;
+    Number target! = OptOn(Opt.RecFromTrimStart) ? trimStart : currFrame; // take start
+    Boolean guides! = punchFrame != -1;
+    Any posRing!;
+    Any posSphere!;
+    Any aimSphere!;
+    Number hint!;
+
+    if (guides)
+    {
+        // a retake starts at the playhead within the track
+        target = Min(currFrame, recStart + recFrames - 1);
+        punchFrame = target;
+        Number s! = target - recStart;
+        ReadTrackSample(focusedTrack, s);
+        punchPos = readPos;
+        punchDir = LookDir(readLook);
+        punchHealth = readLook.Z;
+        punchAir = !HasBit(readCtrl.Y, BIT_GROUND);
+        TeleportFacing(punchPos, punchDir);
+
+        // hold the player in air
+        if (punchAir)
+        {
+            ReadTrackSample(focusedTrack, Min(s + 1, recFrames - 1));
+            punchVel = (readPos - punchPos) / delta;
+            StartForcingPlayerPosition(player, punchPos, false); // for some reason this makes the player's aim feel floaty - dont care!
+        }
+        currFrame = target; // the other bots show the frame the retake starts at
+
+        // the sphere sits along the recorded aim from the player's eye height at the spot, backed off the first surface until it just touches it
+        Vector eye! = punchPos + EyePos() - PosOf();
+        Vector aimEnd! = eye + punchDir * PUNCH_AIM_DIST;
+        Number headOn! = Max(Abs(Dot(punchDir, RayNormal(eye, aimEnd, null))), 0.25); // 1 when nothing's hit, the normal then points back along the ray
+        Number dist! = DistanceBetween(eye, RayHit(eye, aimEnd, null)) * headOn / (headOn + PUNCH_AIM_SIZE);
+        punchAim = eye + punchDir * dist;
+        punchAimR = dist * PUNCH_AIM_SIZE;
+
+        CreateEffect(player, Effect.Ring, PunchInPlace() ? Color.Green : Color.White, punchPos, PUNCH_POS_RADIUS, EffectRev.VisibleToPositionRadiusAndColor);
+        posRing = LastCreatedEntity();
+        CreateEffect(player, Effect.Sphere, PunchInPlace() ? Color.Green : Color.White, punchPos, PUNCH_POS_RADIUS / 4, EffectRev.VisibleToPositionRadiusAndColor);
+        posSphere = LastCreatedEntity();
+        CreateEffect(player, Effect.Sphere, PunchAimed() ? Color.Green : Color.White, punchAim, punchAimR, EffectRev.VisibleToPositionRadiusAndColor);
+        aimSphere = LastCreatedEntity();
+        CreateHudText(
+            VisibleTo:      player,
+            Text:           punchAir ? " \n\n\nAim at the sphere to start the retake countdown" : " \n\n\nStay in the ring while aiming at the sphere to start the retake countdown",
+            Location:       Location.Top,
+            SortOrder:      1,
+            TextColor:      Color.White,
+            Reevaluation:   HudTextRev.VisibleTo,
+            Spectators:     Spectators.VisibleNever);
+        hint = LastTextID();
+    }
+    // retakes start from the same spot, before the countdown so it's spent there. reads the old samples, take clears them
+    else if (OptOn(Opt.TeleportOnRecord) && HasRecording())
+    {
+        ReadTrackSample(focusedTrack, 0);
+        TeleportFacing(readPos, LookDir(readLook));
+    }
+
+    // retake countdown only while lined up, and cancels if the player looks away. move speed is 0 while lined up, so keys can be held before recording actually starts
+    Number end! = -1; // countdown end. -1 while not counting
+    while (recordArmed && !timelineOpen && (end == -1 || Time() < end))
+    {
+        tickJ = !guides || PunchLinedUp();
+        if (tickJ && end == -1)
+        {
+            end = Time() + REC_COUNTDOWN;
+            // only with a whole countdown of timeline before the take, a take near the start gets a plain countdown
+            preRolling = OptOn(Opt.PreRoll) && OptOn(Opt.PlayWhileRecording) && target >= REC_COUNTDOWN / delta;
+            punchLocked = guides;
+            ApplyMovementState();
+        }
+        else if (!tickJ && end != -1)
+        {
+            end = -1;
+            recCount = 0;
+            preRolling = false;
+            punchLocked = false;
+            ApplyMovementState();
+            currFrame = target;
+            SmallMessage(player, "Countdown stopped, line up again");
+        }
+
+        if (end != -1)
+        {
+            tickI = Ceil(end - Time());
+            if (tickI != recCount)
+                recCount = tickI;
+            // reaches the take's start as the countdown ends
+            if (preRolling)
+                currFrame = target - Near((end - Time()) / delta);
+        }
+        MinWait();
+    }
+    recCount = 0;
+    preRolling = false;
+    punchLocked = false; // applied by StartRecording, or below
+
+    if (guides)
+    {
+        DestroyEffect(posRing);
+        DestroyEffect(posSphere);
+        DestroyEffect(aimSphere);
+        DestroyHudText(hint);
+
+        if (punchAir)
+            StopForcingPlayerPosition();
+    }
+
+    // still armed with the timeline closed, so the countdown ran out
+    if (recordArmed && !timelineOpen)
+    {
+        // lined up within the ring and sphere, so correct whatever error is there. a player that's held in the air is let go at the forward differenced velocity
+        if (guides && punchAir)
+        {
+            SetFacing(player, punchDir, Relative.ToWorld);
+            ApplyImpulse(player, punchVel, Mag(punchVel), Relative.ToWorld, ContraryMotion.Cancel);
+        }
+        else if (guides)
+            TeleportFacing(punchPos, punchDir);
+
+        currFrame = target;
+        StartRecording();
+    }
+    else
+    {
+        ApplyMovementState();
+        currFrame = from;
+        SpawnIdleTrackBot(focusedTrack);
+    }
+}
+
+void StartRecording() playervar "rec - start recording"
+{
+    recordArmed = false;
+
+    if (OptOn(Opt.Noclip) && OptOn(Opt.NoclipAutoOff))
+        opts[Opt.Noclip] = false;
+
+    ApplyMovementState();
+
+    trackHero[focusedTrack] = HeroOf();
+
+    if (punchFrame == -1)
+    {
+        ResetHeroConsumables();
+        flags = [];
+        recStart = currFrame;
+        recTrimEnd = HasRecording() && trimEnd < timelineFrames && trimEnd > recStart ? trimEnd : 0;
+        BeginTake(focusedTrack);
+        recFrames = 0;
+    }
+    else
+    {
+        flags = flags.Filter(f => f < currFrame);
+        recTrimEnd = trimEnd < timelineFrames && trimEnd > recStart ? trimEnd : 0;
+        recFrames = currFrame - recStart;
+        BeginPunch(focusedTrack, recFrames);
+    }
+    trackStart[focusedTrack] = recStart;
+    trackFrames[focusedTrack] = recFrames;
+    recLimit = Min(MAX_TRACK_SAMPLES, MAX_TOTAL_SAMPLES - recOthers);
+
+    if (OptOn(Opt.StopAtTrimEnd) && trimEnd > currFrame)
+        recLimit = Min(recLimit, trimEnd - recStart);
+
+    UpdateTimelineFrames();
+
+    // a retake continues the recorded health
+    if (punchFrame != -1 && punchHealth > 0)
+        SetPlayerHealth(player, punchHealth);
+    else if (OptOn(Opt.RecHealth))
+        SetPlayerHealth(player, RecHealth());
+
+    recTime = Time() - recFrames * delta; // the frame count comes from the time, a retake starts with the kept frames
+    recording = true;
+}
+
+void StopRecording() playervar "rec - stop recording"
+{
+    recording = false;
+    currFrame = TakeStart();
+    punchFrame = -1;
+    trackLabelsFresh = false;
+    RecLevelsFlush();
+
+    if (HasRecording())
+        async! FinishTake(focusedTrack);
+
+    SmallMessage(player, <"Track <0> saved: <1> long with <2> frames", focusedTrack + 1, FormattedFrameToSec(recFrames), recFrames>);
+}
+
+void FinishTake(Number t!) playervar "rec - finish take"
+{
+    MinWait();
+
+    // here and not in Stop Recording, the growth in "recording" runs after that on a limit stop
+    if (recTrimEnd > 0)
+        trimEnd = Min(recTrimEnd, timelineFrames);
+
+    if (trackHidden[t])
+        SmallMessage(player, <"Track <0> is hidden, unhide it to see its playback", t + 1>);
+
+    if (OptOn(Opt.NextTrackAfterRec) && focusedTrack == t)
+    {
+        Number[] empty! = SortedArray(TRACK_IDS.Filter(u => u != t && trackFrames[u] == 0), (Curr() - t + MAX_TRACKS) % MAX_TRACKS);
+        if (empty.Length > 0)
+        {
+            SelectTrack(empty.First);
+            SmallMessage(player, <"Track <0> selected", empty.First + 1>);
+        }
+            
+    }
+
+    WaitUntil(ServerLoad() < 200, 3);
+    SpawnIdleTrackBot(t); // could be deleted or played firstPerson meanwhile
+}
+
+rule: "recording"
+Event.OngoingPlayer
+if (recording)
+{
+    // frames come from Time(), just so it wont drop a sample if theres a skipped server tick for whatever reason
+    while (recording && recFrames < Near((Time() - recTime) / delta) + 1)
+    {
+        recBuf += {
+            Pos:  PosOf(),
+            Look: Vector(HorizontalAngleFromDirection(Facing()), VerticalAngleFromDirection(Facing()), Health()),
+            Ctrl: Vector(ThrottleX(),
+                    (IsPrimaryHeld() ? BIT_PRIMARY : 0) + (IsSecondaryHeld() ? BIT_SECONDARY : 0) + (IsAbility1Held() ? BIT_ABILITY1 : 0)
+                    + (IsAbility2Held() ? BIT_ABILITY2 : 0) + (IsUltimateHeld() ? BIT_ULTIMATE : 0) + (IsInteractHeld() ? BIT_INTERACT : 0)
+                    + (IsJumpHeld() ? BIT_JUMP : 0) + (IsCrouchHeld() ? BIT_CROUCH : 0) + (IsMeleeHeld() ? BIT_MELEE : 0) + (IsReloadHeld() ? BIT_RELOAD : 0)
+                    + (IsUsingAbility1() ? BIT_USING_AB1 : 0) + (IsUsingAbility2() ? BIT_USING_AB2 : 0) + (IsUsingUltimate() ? BIT_USING_ULT : 0)
+                    + (IsOnGround() ? BIT_GROUND : 0) + (IsDead() ? BIT_DEAD : 0),
+                    ThrottleOf().Z)};
+
+        recFrames++;
+        trackFrames[focusedTrack] = recFrames;
+        RecLevelsUp();
+
+        if (recFrames >= recLimit)
+        {
+            StopRecording();
+            
+            if (recFrames >= MAX_TRACK_SAMPLES)
+                SmallMessage(player, "Track full, recording stopped");
+            else if (recOthers + recFrames >= MAX_TOTAL_SAMPLES)
+                SmallMessage(player, "Recording limit reached: 10 minutes across all tracks, recording stopped");
+
+        }
+    }
+
+    // grow the timeline and playback range to fit the recording, a stop needs it too
+    // tickK is the recording's end, a plain variable since this runs every tick
+    tickK = recStart + recFrames;
+    if (tickK > timelineFrames)
+        timelineFrames = tickK;
+    if (tickK > trimEnd)
+        trimEnd = tickK;
+
+    if (!recording)
+        return;
+
+    if (OptOn(Opt.StopOnDeath) && IsDead())
+    {
+        StopRecording();
+        return;
+    }
+
+    currFrame = tickK;
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+Number REC_CONFIRM_TIME: 3;
+playervar Number recBindTime!;
+void ToggleRecording() playervar "rec - toggle recording"
+{
+    if (recording)
+        StopRecording();
+
+    else if (!recordArmed && HasRecording() && Time() - recBindTime > REC_CONFIRM_TIME)
+    {
+        recBindTime = Time();
+        SmallMessage(player, <"Replaces track <0>, press again to confirm", focusedTrack + 1>);
+    }
+    else
+    {
+        recordArmed = !recordArmed;
+        punchFrame = -1; // the keybind always records the whole track
+        recBindTime = -REC_CONFIRM_TIME;
+    }
+}

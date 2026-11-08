@@ -1,0 +1,35 @@
+{
+  "Lobby": {
+    "Allow Players Who Are In Queue": true,
+    "Map Rotation": "After A Game",
+    "Max Team 1 Players": 1,
+    "Max Team 2 Players": 1,
+    "Max Spectators": 2,
+    "Return To Lobby": "Never"
+  },
+  "Modes": {
+    "All": {
+      "Respawn Time Scalar": 100,
+      "Hero Limit": "Off",
+      "Game Mode Start": "Manual",
+      "Skins": "Off"
+    },
+      "Skirmish": {
+        "Enabled Maps": [
+          "Workshop Chamber"
+        ]
+      }
+  },
+  "Heroes":{
+      "General": {
+          "Ability Cooldown Time": 0
+      }
+  },
+  "Extensions": { 
+    "Beam Effects": true,
+    "Play More Effects": true, 
+    "Spawn More Dummy Bots": true
+  },
+  "Mode Name": "Swiss Debug",
+  "Description": ""
+}

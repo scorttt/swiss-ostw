@@ -1,0 +1,529 @@
+import "../main.del";
+
+enum Side
+{
+    Ally,
+    Enemy
+}
+
+playervar Player[] trackBot;    // on the owner, bot of each track
+playervar Number[] trackTeam;   // on the owner, Side of each track's bot
+playervar Boolean[] trackHidden; // on the owner, a hidden track has no bot
+
+playervar Player botOwner;      // player whose track a bot plays
+playervar Number botTrack;
+playervar Number botFrame;      // last applied frame of a bot
+playervar Number botS;          // sample of the current frame
+playervar Number botButtons;    // bot held buttons in Sample.Ctrl.Y's bit order
+// read once per tick, and the buttons SetBotButtons holds. a plain variable because ! vars share an array per player and writing it every tick rereads the entire array. the rest of the sample is read whereever appropriate
+playervar Number botBtn;
+playervar Vector botThrottle;
+playervar Vector botForcePos;
+playervar Boolean botDriven;    // bot playing inputs (true)? otherwise it must be frozen (false)
+playervar Boolean botMoving!;   // throttle and forced position are active
+playervar Boolean botLive;      // bot can take damage and die
+playervar Number botGravity;
+playervar Boolean botSampleDead; // recording is dead at the bot's current frame
+playervar Boolean botDiedInPlay!; // bot died naturally during playback (another track, kill volume)
+playervar Boolean botRecKill!;    // bot is dead because the recording is dead
+playervar Boolean botSyncHealth; // set health from the recording on the next applied frame
+playervar Vector botFacing;      // recorded facing, StartFacing() turns a driven bot (and the firstPerson perspective) to it
+playervar Boolean botFacingLocked!; // human only, camera is locked to the recorded facing
+playervar Number botFacingFrame!;   // human only, frame the camera was last turned to while the timeline is open
+playervar Number botDiedAt!;       // human only, frame a kill volume killed them at, -2 once the recording is dead too, -1 alive
+playervar Number botRetapFrame!;   // frame an ability was last tapped again to match the recording
+// a pass of the loop in "bot playback" runs every tick while the playhead moves without driving the bot (seek, fast forward, rewind), its values are plain variables
+playervar Number botKey;        // the owner's playKey, the driven loop and the idle sleep run until it changes
+playervar Number botStart;
+playervar Number botFrames;
+playervar Boolean botHoldRec;   // stays at the frame the owner's take started at while they record
+playervar Boolean botHoldFocus; // stays where it was while unfocused
+playervar Number botF;          // frame the bot should be at, clamped to the track once driving is decided
+playervar Boolean botReleased;  // motion stopped this pass, the frame is applied next pass
+playervar Boolean botDead;      // bots only
+
+
+// playback reads a window of the track instead of storage or a whole copy: the chunk the bot is in and the start of the next one (the forced position aims up to correctLead frames ahead).
+// a whole 2 minute track per bot is too much to copy when multiple bots spawn at once, so a window moves every CHUNK_SIZE frames (2s)
+playervar Sample[] botChunkA;      // chunk botWinC of the track
+playervar Vector[] botNextPos;     // the first correctLead positions of chunk botWinC + 1
+playervar Number botWinC!;         // chunk in botChunkA, -2 before the first load
+
+// StartForcingPosition() seems to be about ~6 ticks late (2 was 4.4 frames off, 4 off 2.3, 6 off 0.3, 8 off 1.5 but ahead), 6 kept bots on the samples the best
+Number CORRECT_LEAD: 6;
+
+Number RETAP_FRAMES: 10;
+Number FIRST_PERSON_DEATH_WAIT: 30; // amount of frames the dead human waits for the recording to die where they did
+
+// the sample at botS, always in the window's first chunk
+Vector BotPos(Player p = player): p.botChunkA[p.botS % CHUNK_SIZE].Pos;
+Vector BotLook():     botChunkA[botS % CHUNK_SIZE].Look;
+Vector BotCtrl():     botChunkA[botS % CHUNK_SIZE].Ctrl;
+Vector BotFacing():   LookDir(BotLook());
+Vector BotThrottleAt(): Vector(BotCtrl().X, 0, BotCtrl().Z);
+Number BotButtons():  BotCtrl().Y;
+Number BotLeadS(): Min(botS + CORRECT_LEAD, botFrames - 1);
+Vector BotLeadPos(Number s): Floor(s / CHUNK_SIZE) == botWinC ? botChunkA[s % CHUNK_SIZE].Pos : botNextPos[s % CHUNK_SIZE]; // s from BotLeadS
+Number BotRecHealth(): BotLook().Z > 0 ? BotLook().Z : MaxHealth();
+Number BotGravityNow(): botDriven || HasBit(BotButtons(), BIT_GROUND) ? 100 : 0;
+
+void SpawnTrackBot(Number t!) playervar "bot - spawn track bot"
+{
+    DestroyTrackBot(t);
+
+    ReadTrackSample(t, Clamp(currFrame - TrackStart(t, player), 0, TrackFrames(t, player) - 1));
+    CreateDummyBot(trackHero[t], trackTeam[t] == Side.Enemy ? OppositeTeamOf(TeamOf()) : TeamOf(), -1, readPos, LookDir(readLook));
+    trackBot[t] = LastCreatedEntity();
+    trackBot[t].botTrack = t;
+    trackBot[t].botOwner = player; // start the bot playback
+}
+
+// the track being recorded has no bot
+void SpawnIdleTrackBot(Number t!) playervar "bot - spawn idle bot"
+{
+    if (TrackFrames(t, player) > 0 && !TrackPlays(t) && !trackHidden[t] && !(recording && t == focusedTrack))
+        SpawnTrackBot(t);
+}
+
+void DestroyTrackBot(Number t!) playervar "bot - destroy track bot"
+{
+    if (EntityExists(trackBot[t]))
+        DestroyDummyBot(TeamOf(trackBot[t]), SlotOf(trackBot[t]));
+    trackBot[t] = null;
+}
+
+void ToggleTrackHidden(Number t!) playervar "bot - toggle track hidden"
+{
+    trackHidden[t] = !trackHidden[t];
+    trackLabelsFresh = false;
+
+    if (trackHidden[t])
+        DestroyTrackBot(t);
+    else
+        SpawnIdleTrackBot(t);
+}
+
+void ToggleTrackTeam(Number t!) playervar "bot - toggle track team"
+{
+    trackTeam[t] = 1 - trackTeam[t];
+    if (EntityExists(trackBot[t]))
+        SpawnTrackBot(t);
+}
+
+// same order as the buttons bits
+globalvar Button[] BOT_BUTTONS! = [Button.PrimaryFire, Button.SecondaryFire, Button.Ability1, Button.Ability2, Button.Ultimate,
+                                  Button.Interact, Button.Jump, Button.Crouch, Button.Melee, Button.Reload];
+
+// holds the held button bits of botBtn (the bits above them are ignored)
+void SetBotButtons() playervar "bot - set buttons"
+{
+    if (botBtn % BIT_USING_AB1 == botButtons)
+        return;
+
+    for (tickI = 0; tickI < 10; tickI++) // BOT_BUTTONS
+    {
+        if (Floor(botBtn / (2^tickI)) % 2 != Floor(botButtons / (2^tickI)) % 2)
+        {
+            if (HasBit(botBtn, 2^tickI))
+                StartHoldingButton(player, BOT_BUTTONS[tickI]);
+            else
+                StopHoldingButton(player, BOT_BUTTONS[tickI]);
+        }
+    }
+    botButtons = botBtn % BIT_USING_AB1;
+}
+
+void StopMomentum() playervar "bot - stop momentum"
+{
+    StopAllMomentum(); // since this is a macro stick it in a subroutine
+}
+
+// releases the buttons, then stops the throttle, forced position and facing
+void StopBotMotion() playervar "bot - stop motion"
+{
+    botBtn = 0; // read again before its next use in the driven loop
+    SetBotButtons();
+
+    if (!botMoving)
+        return;
+
+    StopThrottleInDirection();
+    StopForcingPlayerPosition();
+
+    if (IsDummyBot())
+        StopFacing();
+
+    botMoving = false;
+}
+
+// botChunkA = chunk tickI of the bot's track
+void ReadChunkToA() playervar "bot - read chunk"
+{
+    switch (botTrack)
+    {
+        case 0:  botChunkA = trackChunks0[tickI];  break;
+        case 1:  botChunkA = trackChunks1[tickI];  break;
+        case 2:  botChunkA = trackChunks2[tickI];  break;
+        case 3:  botChunkA = trackChunks3[tickI];  break;
+        case 4:  botChunkA = trackChunks4[tickI];  break;
+        case 5:  botChunkA = trackChunks5[tickI];  break;
+        case 6:  botChunkA = trackChunks6[tickI];  break;
+        case 7:  botChunkA = trackChunks7[tickI];  break;
+        case 8:  botChunkA = trackChunks8[tickI];  break;
+        case 9:  botChunkA = trackChunks9[tickI];  break;
+        case 10: botChunkA = trackChunks10[tickI]; break;
+        case 11: botChunkA = trackChunks11[tickI]; break;
+    }
+}
+
+// the next chunk passes through botChunkA first, the whole chunk would be sent to every client if it stayed in a variable
+void LoadBotWindow() playervar "bot - load window"
+{
+    tickI = Floor(botS / CHUNK_SIZE) + 1;
+    ReadChunkToA();
+    botNextPos = botChunkA.Slice(0, CORRECT_LEAD).Map(s => s.Pos);
+    tickI--;
+    ReadChunkToA();
+    botWinC = tickI;
+}
+
+Number PlayKeyNow(): (playing ? 1 : 0) + (recording ? 2 : 0) + (playbackActive ? 4 : 0) + focusedTrack * 8
+    + (OptOn(Opt.PlayAll) ? 128 : 0) + (OptOn(Opt.PlayWhileRecording) ? 256 : 0) + (preRolling ? 512 : 0);
+
+playervar Number playKey!;
+rule: "playback key"
+Event.OngoingPlayer
+if (!IsDummyBot())
+if (playKey != PlayKeyNow())
+{
+    playKey = PlayKeyNow();
+
+    if (All().IsTrueForAny(p => p.playing || p.recording))
+        EnableKillFeed(All());
+    else
+        DisableKillFeed(All());
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+rule: "bot playback"
+Event.OngoingPlayer
+if (EntityExists(botOwner))
+{
+    botFrame = -1;
+    botButtons = 0;
+    botDriven = false;
+    botMoving = true;
+    StopBotMotion();
+    botWinC = -2; // the window loads with the first applied frame, -2 so chunk 0 isnt taken for the next chunk
+
+    if (IsDummyBot())
+    {
+        DisableMovementCollisionWithPlayers();
+        DisableRespawning();
+        SetDamageDealt(player, botOwner.opts[Opt.DamageScale]);
+        SetDamageHealingReceived(0);
+        botLive = false;
+
+        if (!All().IsTrueForAny(p => p.playing || p.recording)) // "playback key" only works on players that exist
+            DisableKillFeed(player);
+    }
+    else
+        botFacingLocked = false;
+
+    botGravity = 0;
+    SetGravity(player, 0);
+    StopMomentum();
+    CancelActions();
+    botSampleDead = false;
+    botDiedInPlay = false;
+    botDiedAt = -1;
+
+    while (EntityExists(botOwner))
+    {
+        // no window yet, or switched to diff track when FirstPerson
+        if (botWinC == -2)
+            botFrame = -1;
+
+        botKey = botOwner.playKey; // with the state read below, the driven loop runs until it changes
+        botStart = TrackStart(botTrack, botOwner);
+        botFrames = TrackFrames(botTrack, botOwner);
+
+        if (!IsDummyBot() && (!timelineOpen && playbackActive) != botFacingLocked)
+        {
+            botFacingLocked = !botFacingLocked;
+            if (botFacingLocked)
+            {
+                StartFacing(player, botFacing, 100000, Relative.ToWorld, FacingRev.DirectionAndTurnRate);
+                botFrame = -1;
+                botGravity = -1;
+            }
+            else
+            {
+                StopFacing();
+                botFacingFrame = botFrame; // already facing
+            }
+        }
+
+        botHoldRec = botOwner.recording && !OptOn(Opt.PlayWhileRecording, botOwner);
+
+        botHoldFocus = botTrack != botOwner.focusedTrack && botOwner.playbackActive && !OptOn(Opt.PlayAll, botOwner);
+
+        botF = botHoldRec ? TakeStart(botOwner) : botHoldFocus ? botOwner.trackHold[botTrack] : botOwner.currFrame;
+
+        botReleased = false;
+
+
+        if (((botOwner.playing || botOwner.preRolling || (botOwner.recording && !botHoldRec)) && !botHoldFocus
+            && botF >= botStart && botF < botStart + botFrames) != botDriven)
+        {
+            botDriven = !botDriven;
+
+            // the human stays in the recorded pose while stopped
+            if (!IsDummyBot())
+                ApplyMovementState();
+
+            if (!botDriven)
+            {
+                botDiedInPlay = false;
+
+                botReleased = botMoving;
+                StopBotMotion();
+                StopMomentum();
+                CancelActions();
+                botFrame = -1; // reapply the frame, gravity follows on ground bit again (pausing mid-air)
+            }
+        }
+
+        // bots only take damage and die only while recording, playback just replays recorded health
+        if ((botDriven && botOwner.recording) != botLive)
+        {
+            botLive = !botLive;
+            SetDamageHealingReceived(botLive ? 100 : 0);
+            botSyncHealth = true;
+        }
+
+        // apply new frame. teleporting in the same tick as StopForcingPlayerPosition() doesnt work, so released bots get its frame next tick
+        botF = Clamp(botF, botStart, botStart + botFrames - 1);
+        if (botFrames > 0 && botF != botFrame && !botReleased && !IsDragging(player))
+        {
+            botS = botF - botStart;
+            if (Floor(botS / CHUNK_SIZE) != botWinC)
+                LoadBotWindow();
+
+            botSampleDead = BotButtons() >= BIT_DEAD;
+
+            botFacing = BotFacing();
+            if (IsDummyBot() && IsAlive())
+                SetFacing(player, botFacing, Relative.ToWorld);
+
+            // normal damage while recording
+            tickJ = BotRecHealth();
+            if ((!botLive || botSyncHealth) && Health() != tickJ)
+                SetPlayerHealth(player, tickJ);
+
+            botSyncHealth = false;
+
+            if (BotGravityNow() != botGravity)
+            {
+                botGravity = BotGravityNow();
+                SetGravity(player, botGravity);
+                if (botGravity == 0)
+                    StopMomentum();
+            }
+
+            if (botDriven && IsAlive() && !botMoving && !botSampleDead)
+            {
+                botMoving = true;
+                botThrottle = BotThrottleAt();
+                tickI = BotLeadS();
+                botForcePos = BotLeadPos(tickI);
+                StartThrottleInDirection(player, botThrottle, Mag(botThrottle), Relative.ToPlayer, ThrottleBehavior.ReplaceExistingThrottle, ThrottleRev.DirectionAndMagnitude);
+                StartForcingPlayerPosition(player, botForcePos, true);
+
+                if (IsDummyBot())
+                    StartFacing(player, botFacing, 100000, Relative.ToWorld, FacingRev.DirectionAndTurnRate);
+            }
+            else if (!botDriven && (IsDummyBot() || !botSampleDead))
+            {
+                Teleport(player, BotPos());
+                if (IsDummyBot())
+                    ResetHeroConsumables();
+            }
+
+            botFrame = botF;
+        }
+
+        if (!IsDummyBot() && timelineOpen && botFrame != -1 && botFacingFrame != botFrame && !IsDragging(player))
+        {
+            facingX = HorizontalAngleFromDirection(botFacing);
+            facingY = VerticalAngleFromDirection(botFacing);
+            SetFacing(player, DirectionFromAngles(facingX - hoverX, Clamp(facingY - hoverY, -89, 89)), Relative.ToWorld); // past 90 flips the camera
+            botFacingFrame = botFrame;
+            camTurnEnd = Time() + CAM_TURN_WAIT;
+        }
+
+        if (!IsDummyBot() && IsDead())
+        {
+            if (botDiedAt == -1)
+            {
+                botDiedAt = botF;
+                DisableRespawning();
+                StopBotMotion();
+            }
+
+            if (botSampleDead)
+                botDiedAt = -2;
+
+            if (!botDriven || (botDiedAt == -2 ? !botSampleDead : Abs(botF - botDiedAt) > FIRST_PERSON_DEATH_WAIT))
+            {
+                // the frame is reapplied next tick, a dead bot (stopped mid death) cant place them so they go somewhere safe
+                Vector pos! = PosOf();
+                Respawn();
+                EnableRespawning();
+
+                if (botSampleDead)
+                    Teleport(player, NearestWalkablePos(pos));
+
+                botDiedAt = -1;
+                botFacingLocked = false; // lock camera again
+                botFrame = -1;
+            }
+        }
+
+        // life, bots only. the human isnt killed or respawned by the recording
+        botDead = IsDummyBot() && IsDead();
+
+        if (botDead)
+        {
+            StopBotMotion();
+
+            // natural death during playback
+            if (botDriven && !botRecKill && !botDiedInPlay)
+            {
+                botDiedInPlay = true;
+                // kept dead only while recording
+                if (!botOwner.recording || !OptOn(Opt.KeepBotsDead, botOwner))
+                    EnableRespawning();
+            }
+        }
+
+        if (IsDummyBot() && botSampleDead)
+        {
+            if (!botRecKill)
+            {
+                botRecKill = true;
+                botDiedInPlay = false;
+                DisableRespawning();
+            }
+
+            if (!botDead)
+            {
+                SetDamageReceived(player, 100);
+                Kill(player, null);
+
+                if (!botLive)
+                    SetDamageReceived(player, 0);
+            }
+        }
+        // respawn if the death happened outside of playback (e.g. kill volume)
+        else if (botDead ? botRecKill || !botDriven : botDiedInPlay)
+        {
+            if (botDead)
+                Respawn();
+
+            botRecKill = false;
+            botDiedInPlay = false;
+            DisableRespawning();
+            DisableMovementCollisionWithPlayers();
+
+            if (!botLive)
+                SetDamageHealingReceived(0);
+
+            botGravity = -1;
+            botFrame = -1;
+        }
+
+        // driven loop: while only the frame moves on, a driven bot does this per-frame work
+        if (botMoving && !botSampleDead && botFrame != -1)
+        {
+            // the owner's playKey is one number, so the check every tick stays short. the bot's track keeps its start and length as long as the bot exists
+            while (IsAlive() && botOwner.playKey == botKey
+                && botOwner.currFrame >= botStart && botOwner.currFrame < botStart + botFrames)
+            {
+                botS = botOwner.currFrame - botStart;
+
+                if (Floor(botS / CHUNK_SIZE) != botWinC)
+                    LoadBotWindow();
+
+                botBtn = BotButtons();
+
+                // recording dies here, full loop kills the bot
+                if (botBtn >= BIT_DEAD)
+                {
+                    botSampleDead = true;
+                    break;
+                }
+
+                if (botBtn % BIT_USING_AB1 != botButtons)
+                    SetBotButtons();
+
+                botFacing = BotFacing();
+                botThrottle = BotThrottleAt();
+                tickI = BotLeadS();
+                botForcePos = BotLeadPos(tickI);
+
+                tickJ = BotRecHealth();
+                if (!botLive && Health() != tickJ)
+                    SetPlayerHealth(player, tickJ);
+
+                // some abilities somehow randomly break on bots (and only bots for some reason!!!), press it again at most every RETAP_FRAMES
+                if (botBtn % BIT_USING_ULT >= BIT_USING_AB1 && Abs(botOwner.currFrame - botRetapFrame) > RETAP_FRAMES) // ability 1 or 2 in use
+                {
+                    if (HasBit(botBtn, BIT_USING_AB1) && !IsUsingAbility1())
+                    {
+                        StopHoldingButton(player, Button.Ability1);
+                        PressButton(player, Button.Ability1);
+                        botButtons -= HasBit(botButtons, BIT_ABILITY1) ? BIT_ABILITY1 : 0; // held again on the next frame
+                        botRetapFrame = botOwner.currFrame;
+                    }
+                    else if (HasBit(botBtn, BIT_USING_AB2) && !IsUsingAbility2())
+                    {
+                        StopHoldingButton(player, Button.Ability2);
+                        PressButton(player, Button.Ability2);
+                        botButtons -= HasBit(botButtons, BIT_ABILITY2) ? BIT_ABILITY2 : 0;
+                        botRetapFrame = botOwner.currFrame;
+                    }
+                }
+
+                MinWait();
+            }
+            botFrame = botS + botStart;
+        }
+
+        MinWait();
+
+        // an owner's playKey reads 0
+        if (IsDummyBot() && !botDriven && botFrame != -1)
+        {
+            WaitUntil(IsDead() != botDead || botOwner.playKey != botKey
+                || (!botHoldRec && !botHoldFocus && Clamp(botOwner.currFrame, botStart, botStart + botFrames - 1) != botF), 0.5);
+        }
+    }
+
+    if (!IsDummyBot())
+    {
+        StopBotMotion();
+        StopFacing();
+        EnableRespawning(); // detached while dead
+        botDriven = false;
+        botFacingLocked = false;
+        ApplyMovementState();
+        botChunkA = []; // the window would stay stored data, bots take theirs with them
+        botNextPos = [];
+
+        if (firstPersonReturn)
+            FirstPersonGoBack();
+    }
+}

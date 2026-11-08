@@ -1,0 +1,172 @@
+import "../main.del";
+
+// every option lives in a single array (saves var slots and elements), indexed by Opt. 0/1 toggle
+enum Opt
+{
+    RecFromTrimStart,
+    StopAtTrimEnd,
+    StopOnDeath,
+    InstantRespawn,     // respawn instantly while recording
+    TeleportOnRecord,
+    Perspective,        // Persp
+    PlayAll,            // off: only the focused track plays, others hold their frame
+    PlayWhileRecording,
+    KeepBotsDead,
+    DamageScale,
+    Noclip,
+    NoclipAutoOff,
+    NoclipNoCollision,
+    Timescale,
+    KickOnEnd,
+    RecHealth,
+    RecHealthValue,     // 1 to MaxHealth
+    NextTrackAfterRec,
+    PreRoll             // the other tracks play during the countdown and reach the record start as it ends
+}
+
+enum Persp
+{
+    Detached,
+    Orbit,
+    FirstPerson
+}
+
+enum OptKind
+{
+    Toggle,
+    Radio,      // OptActive checks <= Radio
+    Group,
+    Slider,
+    Confirm,
+    Cycle
+}
+
+// OPT_ARG of a slider item, indexes the slider ranges
+enum Slider
+{
+    Percent,
+    Damage,
+    Health
+}
+
+// menu items, laid out top to bottom in this order within their column
+enum Item
+{
+    RecFromTrimStart,
+    StopAtTrimEnd,
+    StopOnDeath,
+    InstantRespawn,
+    TeleportOnRecord,
+    NextTrackAfterRec,
+    Perspective,
+    PerspDetached,
+    PerspOrbit,
+    PerspFirstPerson,
+    PlayAll,
+    PlayWhileRecording,
+    PreRoll,
+    KeepBotsDead,
+    DamageScale,
+    DamageValue,
+    Noclip,
+    NoclipAutoOff,
+    NoclipNoCollision,
+    Export,
+    EndGame,
+    RecHealth,
+    RecHealthValue,
+    None = -1
+}
+
+playervar Number[] opts;
+
+Boolean OptOn(Number | Opt o, Player p = player): p.opts[o];
+
+void InitOptionsPlayer()
+{
+    // default options, same order as Opt
+    opts = [
+        true,           // RecFromTrimStart
+        false,          // StopAtTrimEnd
+        false,          // StopOnDeath
+        false,          // InstantRespawn
+        false,          // TeleportOnRecord
+        Persp.Detached, // Perspective
+        true,           // PlayAll
+        true,           // PlayWhileRecording
+        false,          // KeepBotsDead
+        100,            // DamageScale
+        false,          // Noclip
+        true,           // NoclipAutoOff
+        true,           // NoclipNoCollision
+        100,            // Timescale
+        false,          // KickOnEnd
+        true,           // RecHealth
+        99999,          // RecHealthValue, hero's max health on spawn
+        false,          // NextTrackAfterRec
+        true            // PreRoll
+    ];
+    expandedOpt = Item.None;
+    confirmItem = Item.None;
+    optDrag = Item.None;
+    orbitDist = ORBIT_DIST;
+    orbitUi = Vector(0, 0, 0);
+}
+
+void ApplyOptions() playervar "opt - apply options"
+{
+    SetDamageDealt(player, opts[Opt.DamageScale]);
+    SetDamageDealt(trackBot, opts[Opt.DamageScale]);
+    ApplyMovementState(); // noclip
+}
+
+globalvar Number[] SLIDER_MIN! = [0, 0, 1];
+Number[] SLIDER_MAX: [100, 500, 0];
+Number[] SLIDER_STEP: [1, 5, 1];
+
+Number SliderMax(Number k, Player p = local): k == Slider.Health ? MaxHealth(p) : SLIDER_MAX[k];
+
+// item tables, one entry per Item, filled by OptionItem. children (parent != Item.None) only show while their parent is expanded
+globalvar Number[] OPT_KIND;
+globalvar Number[] OPT_COL;
+globalvar Number[] OPT_PARENT;
+globalvar Number[] OPT_VAR;     // index into opts
+globalvar Number[] OPT_ARG;     // toggle or radio value, or slider index into SLIDER_
+globalvar String[] OPT_LABEL;
+
+void OptionItem(Number | Item id!, Number | OptKind kind!, Number col!, Number | Item parent!, String label!, Number | Opt opt! = 0, Number | Persp | Slider arg! = 0) globalvar "opt - item"
+{
+    OPT_KIND[id] = kind;
+    OPT_COL[id] = col;
+    OPT_PARENT[id] = parent;
+    OPT_LABEL[id] = label;
+    OPT_VAR[id] = opt;
+    OPT_ARG[id] = kind == OptKind.Toggle ? true : arg; // the value that shows it active
+}
+
+void InitOptionTables()
+{
+    OptionItem(Item.RecFromTrimStart,   OptKind.Toggle,  0,   Item.None,                  "Recording starts at trim start",            Opt.RecFromTrimStart);
+    OptionItem(Item.StopAtTrimEnd,      OptKind.Toggle,  0,   Item.None,                  "Recording stops at trim end",               Opt.StopAtTrimEnd);
+    OptionItem(Item.StopOnDeath,        OptKind.Toggle,  0,   Item.None,                  "Stop recording on death",                   Opt.StopOnDeath);
+    OptionItem(Item.InstantRespawn,     OptKind.Toggle,  0,   Item.None,                  "Respawns are instant when recording",       Opt.InstantRespawn);
+    OptionItem(Item.TeleportOnRecord,   OptKind.Toggle,  0,   Item.None,                  "Teleport to start of previous take",        Opt.TeleportOnRecord);
+    OptionItem(Item.NextTrackAfterRec,  OptKind.Toggle,  0,   Item.None,                  "Go to next empty track after recording",    Opt.NextTrackAfterRec);
+    OptionItem(Item.Perspective,        OptKind.Group,   1,   Item.None,                  "Track Playback Perspective",                Opt.Perspective);
+    OptionItem(Item.PerspDetached,      OptKind.Radio,   1,   Item.Perspective,           "Detached",                                  Opt.Perspective, Persp.Detached);
+    OptionItem(Item.PerspOrbit,         OptKind.Radio,   1,   Item.Perspective,           "Orbit",                                     Opt.Perspective, Persp.Orbit);
+    OptionItem(Item.PerspFirstPerson,   OptKind.Radio,   1,   Item.Perspective,           "First Person",                              Opt.Perspective, Persp.FirstPerson);
+    OptionItem(Item.PlayAll,            OptKind.Cycle,   1,   Item.None,                  "Play all tracks simultaneously in editor",  Opt.PlayAll);
+    OptionItem(Item.PlayWhileRecording, OptKind.Toggle,  1,   Item.None,                  "Play all tracks while recording",           Opt.PlayWhileRecording);
+    OptionItem(Item.PreRoll,            OptKind.Toggle,  1,   Item.PlayWhileRecording,    "Pre-roll during the countdown",             Opt.PreRoll);
+    OptionItem(Item.KeepBotsDead,       OptKind.Toggle,  0,   Item.None,                  "Keep bots dead when recording",             Opt.KeepBotsDead);
+    OptionItem(Item.DamageScale,        OptKind.Group,   2,   Item.None,                  "Damage Scale");
+    OptionItem(Item.DamageValue,        OptKind.Slider,  2,   Item.DamageScale,           "Damage %",                                  Opt.DamageScale, Slider.Damage);
+    OptionItem(Item.Noclip,             OptKind.Toggle,  2,   Item.None,                  "Noclip",                                    Opt.Noclip);
+    OptionItem(Item.NoclipAutoOff,      OptKind.Toggle,  2,   Item.Noclip,                "Disable when recording starts",             Opt.NoclipAutoOff);
+    OptionItem(Item.NoclipNoCollision,  OptKind.Toggle,  2,   Item.Noclip,                "Disable collision",                         Opt.NoclipNoCollision);
+    OptionItem(Item.Export,             OptKind.Confirm, 2,   Item.None,                  "Export recording to Inspector");
+    OptionItem(Item.EndGame,            OptKind.Confirm, 2,   Item.None,                  "End game");
+    OptionItem(Item.RecHealth,          OptKind.Toggle,  0,   Item.None,                  "Set recording health",                      Opt.RecHealth);
+    OptionItem(Item.RecHealthValue,     OptKind.Slider,  0,   Item.RecHealth,             "Health",                                    Opt.RecHealthValue, Slider.Health);
+}

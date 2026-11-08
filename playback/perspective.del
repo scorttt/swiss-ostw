@@ -1,0 +1,226 @@
+import "../main.del";
+
+// what firstPerson resumes when the timeline closes
+enum Paused
+{
+    None,
+    Play,
+    Forward,
+    Rewind
+}
+
+playervar Boolean firstPerson;
+playervar Boolean firstPersonLeft!; // detached during playback
+playervar Vector firstPersonReturnPos!;
+playervar Vector firstPersonReturnFacing!;
+playervar Boolean firstPersonReturn;   // detached, "bot playback" puts the human back at firstPersonReturnPos and clears it
+
+rule: "firstPerson attach"
+Event.OngoingPlayer
+if (!firstPerson)
+if (!firstPersonLeft)
+if (playStarting || playing)
+if (HasRecording())
+if (opts[Opt.Perspective] == Persp.FirstPerson)
+{
+    firstPersonReturnPos = PosOf();
+    firstPersonReturnFacing = Facing();
+    firstPersonReturn = false;
+    firstPersonKeysUp = false;
+    firstPerson = true;
+    DestroyTrackBot(focusedTrack);
+    botTrack = focusedTrack;
+    FirstPersonSetHero();
+    ApplyMovementState();
+}
+
+playervar Paused firstPersonPaused;
+
+rule: "firstPerson pause with timeline"
+Event.OngoingPlayer
+if (firstPerson)
+if (timelineOpen)
+if (playing || playStarting || fastForwarding || rewinding)
+{
+    firstPersonPaused = fastForwarding ? Paused.Forward : rewinding ? Paused.Rewind : Paused.Play;
+    playing = false;
+    playStarting = false;
+    fastForwarding = false;
+    rewinding = false;
+}
+
+// when the timeline closes, or when firstPerson ends with it open (the playback goes on in the new perspective)
+rule: "firstPerson resume"
+Event.OngoingPlayer
+if (firstPersonPaused != Paused.None)
+if (!timelineOpen || !firstPerson)
+{
+    // StopAll clears firstPersonPaused
+    if (firstPersonPaused == Paused.Forward)
+        fastForwarding = true;
+    else if (firstPersonPaused == Paused.Rewind)
+        rewinding = true;
+    else if (currFrame >= trimEnd)
+        playing = true; // seeked to the end, "playback range end" either loops or stops it
+    else
+    {
+        snapRestart = true;
+        playStarting = true;
+    }
+    firstPersonPaused = Paused.None;
+}
+
+// the track's hero, then "starts" playback on the human
+void FirstPersonSetHero() playervar "perspective - first person set hero"
+{
+    if (HeroOf() != trackHero[botTrack])
+    {
+        ForcePlayerHero(player, trackHero[botTrack]);
+        WaitUntil(HeroOf() == trackHero[botTrack] && HasSpawned() && IsAlive(), 3);
+        StopForcingHero();
+        ApplyMovementState();
+    }
+
+    if (firstPerson) // not detached during the swap
+        botOwner = player;
+    else if (firstPersonReturn) // "bot playback" isnt running to do it
+        FirstPersonGoBack();
+}
+
+// focusing another track plays that one instead, the previous track gets its bot back
+rule: "firstPerson switch track"
+Event.OngoingPlayer
+if (firstPerson)
+if (botTrack != focusedTrack)
+{
+    Number prev! = botTrack;
+    DestroyTrackBot(focusedTrack);
+    botTrack = focusedTrack;
+
+    if (HasRecording() && HeroOf() != trackHero[botTrack])
+    {
+        botOwner = null;
+        Wait(0.05);
+        FirstPersonSetHero();
+    }
+
+    botWinC = -2; // the window still holds the previous track's chunks, "bot playback" reapplies the frame
+
+    // a new bot is a load spike (~105), switching tracks quickly would be bad
+    WaitUntil(ServerLoad() < 100, 3);
+    if (prev != focusedTrack)
+        SpawnIdleTrackBot(prev);
+
+    LoopIfConditionIsTrue(); // focus moved on again meanwhile
+}
+
+// Jump / Crouch held by the player, not replayed from the recording
+Boolean FirstPersonKeyHeld(): (IsJumpHeld() && !HasBit(botButtons, BIT_JUMP)) || (IsCrouchHeld() && !HasBit(botButtons, BIT_CROUCH));
+
+// Jump / Crouch only detach once released after attaching or closing the timeline, Space starts playback and is
+// usually still held when the timeline closes
+playervar Boolean firstPersonKeysUp!;
+rule: "firstPerson keys released"
+Event.OngoingPlayer
+if (firstPerson)
+if (!firstPersonKeysUp)
+if (!timelineOpen)
+if (!FirstPersonKeyHeld())
+{
+    firstPersonKeysUp = true;
+}
+
+// detaches from an empty track, and once the timeline is closed with playback stopped (rewind / fast forward cancelled,
+// a track deleted or an export while paused), the human would stay frozen in the recorded pose
+rule: "firstPerson detach"
+Event.OngoingPlayer
+if (firstPerson)
+if (opts[Opt.Perspective] != Persp.FirstPerson || !HasRecording()
+    || (!timelineOpen && (!playbackActive || (firstPersonKeysUp && FirstPersonKeyHeld()))))
+{
+    WaitIfTrue(0.032);
+    FirstPersonDetach();
+}
+
+// a tick after the human stops playing, a teleport in the same tick as StopForcingPlayerPosition() doesnt work
+void FirstPersonGoBack() playervar "perspective - first person go back"
+{
+    MinWait();
+    StopMomentum();
+    TeleportFacing(firstPersonReturnPos, firstPersonReturnFacing);
+    firstPersonReturn = false; // "record countdown" waits on this after the teleport
+}
+
+// ends FirstPerson, "bot playback" puts the human back
+void FirstPersonRelease() playervar "perspective - first person release"
+{
+    firstPerson = false;
+    firstPersonLeft = true;
+    firstPersonReturn = true;
+    botOwner = null; // ends "bot playback" on the human
+}
+
+void FirstPersonDetach() playervar "perspective - first person detach"
+{
+    if (!firstPerson)
+        return;
+
+    FirstPersonRelease();
+    SpawnIdleTrackBot(focusedTrack);
+}
+
+Number ORBIT_DIST:   4.5;
+Number ORBIT_ZOOM:   0.2;   // m per tick while held
+Number ORBIT_HEIGHT: 1.5;
+Number ORBIT_BLEND:  50;
+
+playervar Boolean orbiting!;
+playervar Boolean orbitCam!;    // camera running
+playervar Number orbitDist;     // plain, zooming writes it every tick
+playervar Vector orbitPos;
+playervar Vector orbitUi;       // camera minus human eye, moves the timeline text to the camera, timeline text has a bit of parallax as a compromise
+
+Player OrbitBot(): trackBot[focusedTrack];
+Boolean OrbitActive(): orbiting && opts[Opt.Perspective] == Persp.Orbit && !recording && !recordArmed && !heroSwapping && EntityExists(OrbitBot());
+Vector OrbitSample(): BotPos(OrbitBot()) + Vector(0, ORBIT_HEIGHT, 0);
+Vector OrbitEye(): RayHit(orbitPos, orbitPos - Facing() * orbitDist, null, null) + Facing() * 0.2;
+
+rule: "orbit camera"
+Event.OngoingPlayer
+if (OrbitActive())
+{
+    orbitCam = true;
+    ApplyMovementState(); // also disallows the buttons
+    SetInvisible(player, InvisibleTo.All);
+
+    orbitPos = OrbitSample();
+    StartCamera(player, OrbitEye(), orbitPos, ORBIT_BLEND);
+
+    while (OrbitActive())
+    {
+        orbitPos = OrbitSample();
+        orbitUi = OrbitEye() - EyePos();
+
+        if (!playbackActive && currFrame == trimStart)
+            orbiting = false;
+
+        MinWait();
+    }
+
+    StopCamera();
+    SetInvisible(player, InvisibleTo.None);
+    orbitUi = Vector(0, 0, 0);
+    orbitCam = false;
+    ApplyMovementState();
+}
+
+rule: "orbit zoom"
+Event.OngoingPlayer
+if (orbitCam)
+if (!timelineOpen)
+if (IsUltimateHeld() != IsAbility2Held())
+{
+    orbitDist = Clamp(orbitDist + (IsAbility2Held() ? ORBIT_ZOOM : -ORBIT_ZOOM), 1.5, 20);
+    MinWait();
+    LoopIfConditionIsTrue();
+}

@@ -1,0 +1,406 @@
+import "../main.del";
+
+// non-clickable items, the order of TIMELINE_UI_Y_POS
+enum Ui
+{
+    CurrFrame,
+    ProgressBar,
+    Seeker,
+    Handles,
+    HandleTime,
+    FrameMult,
+    Flags,
+    TimeElapsed,
+    FlagCount,
+    TrackEnds
+}
+
+enum Drag
+{
+    None,
+    Seeker,
+    LHandle,
+    RHandle
+}
+
+enum Cursor 
+{ 
+    Default, 
+    Drag,
+    FlagHover 
+}
+
+Number TRACK_HALF:  2.60; // timeline track spans -TRACK_HALF to TRACK_HALF on the menu x axis
+Number TRACK_WIDTH: 5.2;
+Number TOOLTIP_Y:   -1.085;
+Number TOOLTIP_SIZE: 0.9;
+
+Number HANDLE_Y_MIN:     -0.80;
+Number HANDLE_Y_MAX:     -0.725;
+Number HANDLE_HALF_W:    0.0375;
+Number HANDLE_MIN_GAP:   0.05;
+
+Number SEEKER_Y_MIN: -0.975;
+Number SEEKER_Y_MAX: -0.825;
+
+Number SCREEN_WIDTH:  3.65;
+Number SCREEN_HEIGHT: 2.125;
+
+Number ANIM_HIDDEN_Y: -2.9;
+Number ANIM_SPEED:   0.30;
+
+playervar Number facingX;
+playervar Number facingY;
+
+playervar Boolean timelineOpen;
+playervar Boolean trackMenuOpen;
+playervar Number[] timelineCtrlYPos;
+playervar Number[] timelineUiYPos;
+
+playervar Boolean animating;
+playervar Boolean closing;
+
+playervar Number dragTarget;
+
+playervar Number hoverFlagIndex;
+playervar Number objectiveNext!; // objective the objective button teleports to
+
+globalvar Number objectiveCount!;
+globalvar Boolean hasPayload!;    // payload modes put the payload first in the objective button's cycle
+
+void InitObjectives() globalvar "init objectives"
+{
+    objectiveCount =
+        [GameMode.Flashpoint, GameMode.Clash].Contains(CurrentGameMode()) ? 5
+      : [GameMode.Control, GameMode.Escort, GameMode.Hybrid].Contains(CurrentGameMode()) ? 3
+      : [GameMode.Assault, GameMode.CaptureTheFlag].Contains(CurrentGameMode()) ? 2
+      : [GameMode.Elimination, GameMode.FreezethawElimination, GameMode.Push].Contains(CurrentGameMode()) ? 1 // push only has one usable position (objective 1, see the objective button)
+      : 0;
+    hasPayload = [GameMode.Escort, GameMode.Hybrid].Contains(CurrentGameMode());
+}
+
+Color BluePulse():
+    CustomColor(Oscillate(500, 0, 136), Oscillate(500, 153, 219), 255, 255);
+Color RedPulse():
+    CustomColor(Oscillate(500, 180, 255), 0, 0, 255);
+
+Number CursorX(Player p = local): AngleDifference(HorizontalAngleFromDirection(Facing(p)), p.facingX);
+Number CursorY(Player p = local): AngleDifference(VerticalAngleFromDirection(Facing(p)), p.facingY);
+Any CursorState(Player p = local): IsDragging(p) ? Cursor.Drag : p.hoverFlagIndex != -1 ? Cursor.FlagHover : Cursor.Default;
+
+Any RenderPosOf(Number x = 0, Number y = 0):
+    EyePos(local) + local.orbitUi + 100 * (
+        x * WorldVectorOf(Right(), local, LocalVector.Rotation)
+      + y * Cross(Facing(local), WorldVectorOf(Left(), local, LocalVector.Rotation))
+      + 3 * Facing(local));
+
+Any UiPos(Number x, Number | Ui id, Number yOffset = 0): RenderPosOf(x, local.timelineUiYPos[id] + yOffset);
+
+Number FrameToSeconds(Number f): f * delta;
+
+Number FRAMES_PER_MINUTE: 3750;
+String FormattedFrameToSec(Number f): <"<0><1>",
+                                            f >= FRAMES_PER_MINUTE // minutes, and the seconds' leading 0
+                                                ? <"<0>:<1>", Floor(FrameToSeconds(f) / 60), FrameToSeconds(f) % 60 < 10 ? "0" : "">
+                                                : "",
+                                            FrameToSeconds(f) % 60 + 0.0001>; // miliseconds, add small offset so overwatch doesnt hide decimal. this is stupid
+
+Number ThrottleX(Player p = player): ThrottleOf(p).X;
+Boolean TimelineVisible(): local.timelineOpen || local.closing;
+
+Boolean IsDragging(Player p = local): p.dragTarget != Drag.None;
+Number FrameToFraction(Number f, Player p = local): f / p.timelineFrames;
+Number FrameToTrackX(Number f, Player p = local):   FrameToFraction(f, p) * TRACK_WIDTH - TRACK_HALF;
+Number TrackXToFrame(Number x, Player p = local):   Floor(p.timelineFrames * NormalizedRange(Clamp(x, -TRACK_HALF, TRACK_HALF), -TRACK_HALF, TRACK_HALF));
+
+Number TrimStartX(Player p = local):                FrameToTrackX(p.trimStart, p);
+Number TrimEndX(Player p = local):                  FrameToTrackX(p.trimEnd, p);
+
+globalvar String txCharacter;
+rule: "init unsanitized text"
+{
+    // unsanitized string stuff for the menu cursor, might break in future updates
+    CreateDummyBot(<Hero>AllHeroes(), <Team>host, false, null, null);
+    StartForcingDummyBotName(LastCreatedEntity(), "______________________________________________________________________________________________________________________________〼");
+    txCharacter = StringSplit(FirstOf(LastCreatedEntity()), EmptyArray());
+    StartForcingDummyBotName(LastCreatedEntity(), "______________________________________________________________________________________________________________________________ࡀ");
+    txCharacter = StringSlice(StringReplace("______________________________________________________________________________________________________________________________〼", txCharacter, FirstOf(LastCreatedEntity())), 126, true);
+    DestroyAllDummyBots();
+}
+
+void InitTimelinePlayer() playervar "init timeline player"
+{
+    hoverFlagIndex = -1;
+    hovered = Ctrl.None;
+    confirmId = Ctrl.None;
+    tipCtrl = Ctrl.None;
+}
+
+// y of each Ui item while the timeline is open. the ones read on their own have a name
+Number UI_FLAGS_Y:        -0.9575;
+Number UI_TIME_ELAPSED_Y: -1.200;
+Number UI_TRACK_ENDS_Y:   -1.085; // the last one, the open animation stops once its there
+Number[] TIMELINE_UI_Y_POS:
+[
+    -1.200,             // CurrFrame
+    -1.350,             // ProgressBar
+    -0.955,             // Seeker
+    -0.800,             // Handles
+    -0.725,             // HandleTime
+    -1.1425,            // FrameMult
+    UI_FLAGS_Y,         // Flags
+    UI_TIME_ELAPSED_Y,  // TimeElapsed
+    -1.200,             // FlagCount
+    UI_TRACK_ENDS_Y     // TrackEnds
+];
+
+rule: "create timeline text"
+{
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         <"<0>", local.currFrame>,
+        Position:       UiPos((CTRL_X[Ctrl.PrevFrame] + CTRL_X[Ctrl.NextFrame]) / 2, Ui.CurrFrame),
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() ? local : null,
+        Header:         <"<0>/<1>", local.flags.Length, MAX_FLAGS>,
+        Position:       UiPos(CTRL_X[Ctrl.AddFlag], Ui.FlagCount),
+        Scale:          1,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateProgressBarInWorldText(
+        VisibleTo:        TimelineVisible() ? local : null,
+        Text:             "",
+        Value:            FrameToFraction(local.currFrame) * 100,
+        Position:         UiPos(0, Ui.ProgressBar),
+        Scale:            3.2,
+        ProgressBarColor: !local.recording ? Color.White : RedPulse(),
+        Reevaluation:     ProgressBarWorldEvaluation.VisibleToPositionValuesAndColor,
+        Clipping:         Clipping.DoNotClip);
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() || local.playbackActive || local.recording || local.recCount ? local : null,
+        Header:         local.recCount
+                            ? <"Recording in <0>", local.recCount>
+                            : local.recordArmed
+                            ? "Close to begin"
+                            : local.recording
+                                ? <"Recording: <0>", FormattedFrameToSec(local.currFrame)>
+                                : TimelineHasFrames(local)
+                                    ? <"<0> / <1>", FormattedFrameToSec(local.currFrame), FormattedFrameToSec(local.timelineFrames)>
+                                    : "Empty track",
+        Position:       RenderPosOf(0, local.playbackActive || local.recording || local.recCount ? UI_TIME_ELAPSED_Y : local.timelineUiYPos[Ui.TimeElapsed]),
+        Scale:          3,
+        TextColor:      !local.recording && !local.recCount ? Color.White : RedPulse(),
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() && TimelineHasFrames(local) && !local.recording ? local : null,
+        Header:         "┃",
+        Position:       UiPos(FrameToTrackX(local.currFrame), Ui.Seeker),
+        Scale:          2.75,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() && TimelineHasFrames(local) && !local.recording ? local : null,
+        Header:         "▼",
+        Position:       UiPos(TrimStartX(), Ui.Handles),
+        Scale:          2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() && TimelineHasFrames(local) && !local.recording ? local : null,
+        Header:         "▼",
+        Position:       UiPos(TrimEndX(), Ui.Handles),
+        Scale:          2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      TimelineVisible() && (local.rewinding || local.fastForwarding) ? local : null,
+        Header:         <"x<0>", local.framesToSkip>,
+        Position:       UiPos(-2.0625, Ui.FrameMult),
+        Scale:          0.75,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+
+    CreateInWorldText(
+        VisibleTo:      local.timelineOpen ? local : null,
+        Header:         ["{0}TX {1}>".Format([txCharacter, "C0000000002DD21"]), "↔", "⊙"][CursorState()],
+        Position:       Update(local.timelineOpen
+                            ? RenderPosOf(
+                                (local.camTurnEnd != 0 ? local.hoverX : CursorX()) + [ 0.07,  0,    0][CursorState()],
+                                (local.camTurnEnd != 0 ? local.hoverY : CursorY()) + [-0.14, -0.07, -0.07][CursorState()])
+                            : null),
+        TextColor:      Color.White,
+        Scale:          2,
+        Clipping:       Clipping.DoNotClip,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString);
+}
+
+Number TrackCount(): trackFrames.Filter(f => f > 0).Length;
+
+playervar Number[] trackMarkerTexts;
+
+void DestroyTexts(Number[] ids!) playervar "tl - destroy texts"
+{
+    for (tickI = 0; tickI < ids.Length; tickI++)
+        DestroyInWorldText(ids[tickI]);
+    ids = []; // a ! value, it would stay in the shared array
+}
+
+rule: "track end markers"
+Event.OngoingPlayer
+if (timelineOpen || closing)
+{
+    Number count! = TrackCount();
+    trackMarkerTexts = [];
+
+    for (Number i! = 0; i < MAX_TRACKS; i++)
+    {
+        if (TrackFrames(i, player) > 0)
+        {
+            CreateInWorldText(
+                VisibleTo:      player,
+                Header:         <"T<0>", Once(i) + 1>,
+                Position:       UiPos(FrameToTrackX(TrackEnd(Once(i))), Ui.TrackEnds),
+                Scale:          1,
+                TextColor:      local.focusedTrack == Once(i)
+                                    ? Color.White
+                                    : CustomColor(255, 255, 255, 50),
+                Reevaluation:   InworldTextRev.VisibleToPositionAndColor,
+                Clipping:       Clipping.DoNotClip,
+                Spectators:     Spectators.VisibleNever);
+            trackMarkerTexts += LastTextID();
+        }
+    }
+
+    WaitUntil(TrackCount() != count || !(timelineOpen || closing), 99999);
+
+    DestroyTexts(trackMarkerTexts);
+    trackMarkerTexts = [];
+    LoopIfConditionIsTrue();
+}
+
+rule: "open menu toggle"
+Event.OngoingPlayer
+if (player == host) // the track storage is global, only the host edits
+if (!tracksBusy) // an export reads the tracks and an import writes them, nothing may edit them
+if (!HasBit(botButtons, BIT_INTERACT)) // not a recorded interact while playing FirstPerson
+if (IsInteractHeld())
+if (!IsJumpHeld())
+if (!IsReloadHeld()) // reload + interact x2 is the recording keybind
+{
+    WaitIfTrue(0.2);
+    hovered = Ctrl.None;
+
+    timelineOpen = !timelineOpen;
+    if (timelineOpen)
+    {
+        facingX = HorizontalAngleFromDirection(Facing());
+        facingY = VerticalAngleFromDirection(Facing());
+        SetAimSpeed(player, 10);
+        CancelActions(); // stop holding abilities
+        ApplyMovementState(); // also disallows buttons
+    }
+    else if (recordArmed)
+    {
+        CloseTimeline();
+        recordArmed = true; // the user's close keeps an armed take, its countdown starts
+    }
+    else
+        CloseTimeline();
+}
+
+void CloseTimeline() playervar "tl - close"
+{
+    recordArmed = false; // any other close cancels an armed take, it would start the countdown
+    timelineOpen = false;
+    canUseKeybinds = false;
+    firstPersonKeysUp = false; // Space that started playback doesnt detach
+    trackMenuOpen = false;
+    optionsMenuOpen = false;
+    SetAimSpeed(player, 100);
+    ApplyMovementState();
+}
+
+playervar Boolean canUseKeybinds;
+rule: "allow tl keybinds"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!canUseKeybinds)
+if (!HasStatus(player, Status.Stunned))
+if (!IsPrimaryHeld() && !IsSecondaryHeld() && !IsJumpHeld() && !IsCrouchHeld() && !IsMeleeHeld()
+    && !IsAbility1Held() && !IsAbility2Held() && !IsUltimateHeld() && Abs(ThrottleX()) <= 0.5)
+{
+    WaitIfTrue(0.064);
+    canUseKeybinds = true;
+}
+
+void StepAnim() playervar "tl - anim"
+{
+    timelineCtrlYPos = CTRL_Y.Map((y, i) => Lerp(timelineCtrlYPos[i], closing ? ANIM_HIDDEN_Y : y, ANIM_SPEED));
+    timelineUiYPos = TIMELINE_UI_Y_POS.Map((y, i) => Lerp(timelineUiYPos[i], closing ? ANIM_HIDDEN_Y : y, ANIM_SPEED));
+}
+
+rule: "open anim"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!closing)
+{
+    animating = true;
+
+    while (timelineOpen && animating)
+    {
+        StepAnim();
+
+        if (AlmostEqual(timelineUiYPos.Last, UI_TRACK_ENDS_Y))
+            break;
+
+        MinWait();
+    }
+
+    animating = false;
+}
+
+rule: "close anim"
+Event.OngoingPlayer
+if (!IsDummyBot()) // would otherwise animate every new bot's (unused) timeline for ~1s
+if (!timelineOpen)
+{
+    WaitUntil(!animating, 1);
+    closing = true;
+    animating = true;
+
+    while (animating && closing)
+    {
+        StepAnim();
+
+        if (AlmostEqual(timelineUiYPos.Last, ANIM_HIDDEN_Y))
+            break;
+
+        MinWait();
+    }
+
+    animating = false;
+    closing = false;
+}

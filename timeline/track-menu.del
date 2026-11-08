@@ -1,0 +1,192 @@
+import "../main.del";
+
+Number TRACK_MENU_TOP_Y:       0.55;
+Number TRACK_MENU_SPACING:     0.10;
+Number TRACK_SLOT_HIT_WIDTH:   1.40;
+Number TRACK_TEAM_X:           1.05;
+Number TRACK_TEAM_HALF_W:      0.25;
+Number TRACK_HIDE_X:           -1.45;
+Number TRACK_DELETE_X:         -1.00;
+Number TRACK_BTN_HALF_W:       0.22;
+Number TRACK_DELETE_ALL_ROW: MAX_TRACKS + 0.5;
+
+// <FG> tag colors of the Hide/Delete text: hover (OPT_HOVER_COLOR), white, red, gray
+String HEX_HOVER: "44BAFFFF";
+String HEX_WHITE: "FFFFFFFF";
+String HEX_RED:   "FF0000FF";
+String HEX_GRAY:  "808080FF";
+
+playervar Number[] trackMenuTexts;
+playervar String[] trackLabels;
+playervar String[] trackActions;     // the Hide and Delete buttons of each row, one text colored with <FG> tags
+playervar Boolean trackLabelsFresh;  // set false wherever a track's length, hero, hidden state or the focus changes
+playervar Number trackLabelsHover!;  // hovered and confirmId the Hide/Delete strings were built for
+playervar Number trackLabelsConfirm!;
+
+// a hovered or confirmed id as the Hide/Delete strings show it, hovering anything else doesnt rebuild them
+Number ActionHit(Number id): IsInRange(id, HIT_HIDE, HIT_DELETE + MAX_TRACKS - 1) ? id : Ctrl.None;
+
+// the row labels are built here, a formatted string in a text takes seconds to show (tests/text-test.del).
+// the Hide/Delete strings also follow the hover and confirmation while the menu is open. the loops count with the
+// plain tickI, there's no wait before the end
+rule: "track menu labels"
+Event.OngoingPlayer
+if (timelineOpen)
+if (!trackLabelsFresh || (trackMenuOpen && (ActionHit(hovered) != trackLabelsHover || ActionHit(confirmId) != trackLabelsConfirm)))
+{
+    if (!trackLabelsFresh)
+    {
+        trackLabelsFresh = true;
+        tickJ = 0; // the recording budget used
+        for (tickI = 0; tickI < MAX_TRACKS; tickI++)
+        {
+            trackLabels[tickI] = <"<0>Track <1>   <2>",
+                focusedTrack == tickI ? IconString(Icon.ArrowRight) + " " : "",
+                tickI + 1,
+                trackFrames[tickI] > 0
+                    ? <"<0> <1> long, <2> frames", HeroIconString(trackHero[tickI]), FormattedFrameToSec(trackFrames[tickI]), trackFrames[tickI]>
+                    : "Empty">;
+            tickJ += trackFrames[tickI];
+        }
+
+        trackLabels[MAX_TRACKS] = <"Budget: <0> / <1> (all tracks)", FormattedFrameToSec(tickJ), FormattedFrameToSec(MAX_TOTAL_SAMPLES)>;
+    }
+
+    trackLabelsHover = ActionHit(hovered);
+    trackLabelsConfirm = ActionHit(confirmId);
+    for (tickI = 0; tickI < MAX_TRACKS; tickI++)
+        trackActions[tickI] = <"<0>FG<1>><2><3><0>FG<4>><5>",
+            txCharacter,
+            hovered == HIT_HIDE + tickI ? HEX_HOVER : HEX_WHITE,
+            trackHidden[tickI] ? "Show" : "Hide",
+            "         ",
+            trackFrames[tickI] == 0 ? HEX_GRAY : confirmId == HIT_DELETE + tickI ? HEX_RED : hovered == HIT_DELETE + tickI ? HEX_HOVER : HEX_WHITE,
+            confirmId == HIT_DELETE + tickI ? "Delete?" : "Delete">;
+
+    MinWait();
+    LoopIfConditionIsTrue();
+}
+
+rule: "track menu"
+Event.OngoingPlayer
+if (timelineOpen)
+{
+    trackLabelsFresh = false; // not kept up to date while the timeline is closed
+    trackMenuTexts = [];
+
+    CreateInWorldText(
+        VisibleTo:      trackMenuOpen ? player : null,
+        Header:         "Select Track",
+        Position:       RenderPosOf(0, TRACK_MENU_TOP_Y + 0.15),
+        Scale:          2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToAndPosition,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    trackMenuTexts += LastTextID();
+
+    for (Number i! = 0; i < MAX_TRACKS; i++)
+    {
+        if (!timelineOpen)
+            break;
+
+        WaitUntil(ServerLoad() < 225, 99999);
+
+        CreateInWorldText(
+            VisibleTo:      trackMenuOpen ? player : null,
+            Header:         local.trackLabels[Once(i)],
+            Position:       RenderPosOf(0, TRACK_MENU_TOP_Y - (Once(i)) * TRACK_MENU_SPACING),
+            Scale:          1.5,
+            TextColor:      IsHovered(Once(HIT_TRACK + i)) ? OPT_HOVER_COLOR
+                                : local.focusedTrack == Once(i)
+                                    ? Color.White
+                                    : Color.Gray,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        trackMenuTexts += LastTextID();
+
+        CreateInWorldText(
+            VisibleTo:      trackMenuOpen ? player : null,
+            Header:         local.trackTeam[Once(i)] == Side.Enemy ? "Enemy" : "Ally",
+            Position:       RenderPosOf(TRACK_TEAM_X, TRACK_MENU_TOP_Y - (Once(i)) * TRACK_MENU_SPACING),
+            Scale:          1.5,
+            TextColor:      IsHovered(Once(HIT_TEAM + i))
+                                ? OPT_HOVER_COLOR
+                                : local.trackTeam[Once(i)] == Side.Enemy
+                                    ? Color.Red
+                                    : Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        trackMenuTexts += LastTextID();
+        
+        // Hide and Delete, centered between their hit boxes
+        CreateInWorldText(
+            VisibleTo:      trackMenuOpen ? player : null,
+            Header:         local.trackActions[Once(i)],
+            Position:       RenderPosOf((TRACK_HIDE_X + TRACK_DELETE_X) / 2, TRACK_MENU_TOP_Y - (Once(i)) * TRACK_MENU_SPACING),
+            Scale:          1.5,
+            TextColor:      Color.White,
+            Reevaluation:   InworldTextRev.VisibleToPositionAndString,
+            Clipping:       Clipping.DoNotClip,
+            Spectators:     Spectators.VisibleNever);
+        trackMenuTexts += LastTextID();
+
+        MinWait();
+    }
+
+    CreateInWorldText(
+        VisibleTo:      trackMenuOpen ? player : null,
+        Header:         local.confirmId == HIT_DELETE_ALL ? "Confirm Delete All?" : "Delete All Tracks",
+        Position:       RenderPosOf(0, TRACK_MENU_TOP_Y - TRACK_DELETE_ALL_ROW * TRACK_MENU_SPACING),
+        Scale:          1.5,
+        TextColor:      local.confirmId == HIT_DELETE_ALL
+                            ? Color.Red
+                            : IsHovered(HIT_DELETE_ALL)
+                                ? OPT_HOVER_COLOR
+                                : Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    trackMenuTexts += LastTextID();
+
+    CreateInWorldText(
+        VisibleTo:      trackMenuOpen ? player : null,
+        Header:         local.trackLabels[MAX_TRACKS],
+        Position:       RenderPosOf(0, TRACK_MENU_TOP_Y - (TRACK_DELETE_ALL_ROW + 1) * TRACK_MENU_SPACING),
+        Scale:          1.2,
+        TextColor:      Color.White,
+        Reevaluation:   InworldTextRev.VisibleToPositionAndString,
+        Clipping:       Clipping.DoNotClip,
+        Spectators:     Spectators.VisibleNever);
+    trackMenuTexts += LastTextID();
+
+    WaitUntil(!timelineOpen, 99999);
+
+    DestroyTexts(trackMenuTexts);
+    trackMenuTexts = [];
+    LoopIfConditionIsTrue();
+}
+
+void TrackMenuClick(in Number id)
+{
+    if (id < HIT_TEAM)
+        async! SelectTrack(id - HIT_TRACK);
+    else if (id < HIT_DELETE_ALL)
+        async! ToggleTrackTeam(id - HIT_TEAM);
+    else if (id >= HIT_HIDE && id < HIT_DELETE)
+        async! ToggleTrackHidden(id - HIT_HIDE);
+    // first click asks for confirmation
+    else if (confirmId != id)
+        confirmId = id;
+    else
+    {
+        confirmId = Ctrl.None;
+        if (id == HIT_DELETE_ALL)
+            async! DeleteAllTracks();
+        else
+            async! DeleteTrack(id - HIT_DELETE);
+    }
+}
+

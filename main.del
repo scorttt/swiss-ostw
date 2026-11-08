@@ -1,25 +1,34 @@
 import "../macros-ostw/main.del";
-import "settings.json";
+// import "settings.json";
+import "dbgsettings.json";
 
-import "camera.del";
-import "timeline.del";
-import "state.del";
-import "recording.del";
-import "playback.del";
-import "tracks.del";
-import "dbg.del";
+import "core/game.del";
+import "core/tracks.del";
+import "core/state.del";
 
-rule: "Initial Global"
-{
-    PauseMatchTime();
-}
+import "timeline/timeline.del";
+import "timeline/buttons.del";
+import "timeline/controls.del";
+import "timeline/keybinds.del";
+import "timeline/flags.del";
+import "timeline/drag.del";
+import "timeline/track-menu.del";
 
-rule: "give ult"
-Event.OngoingPlayer
-if (IsAlive())
-if (UltimateChargePercent() != 100)
-{
-    SetUltimateCharge(player, 100);
-    MinWait();
-    LoopIfConditionIsTrue();
-}
+import "recording/storage.del";
+import "recording/recording.del";
+
+import "playback/playback.del";
+import "playback/bots.del";
+import "playback/perspective.del";
+
+import "options/options.del";
+import "options/menu.del";
+import "options/confirm.del";
+import "options/noclip.del";
+
+import "export/export.del";
+import "export/import.del";
+
+// import "tests/dbg.del";
+// import "tests/drift-test.del";
+// import "tests/text-test.del";

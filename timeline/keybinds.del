@@ -1,0 +1,146 @@
+import "../main.del";
+
+rule: "tl control keybinds"
+Event.OngoingPlayer
+if (timelineOpen)
+if (canUseKeybinds)
+if (!IsDragging(player))
+if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
+{
+    if (IsPrimaryHeld())
+    {
+        Number hit! = hovered;
+
+        // sliders drag a preview while held ("option slider drag") and set the value on release
+        if (hit >= HIT_OPT && hit < HIT_CONFIRM && OPT_KIND[hit - HIT_OPT] == OptKind.Slider)
+        {
+            optDragValue = opts[OPT_VAR[hit - HIT_OPT]];
+            optDrag = hit - HIT_OPT;
+        }
+
+        WaitUntil(!IsPrimaryHeld() || !timelineOpen, 99999);
+
+        if (optDrag != Item.None)
+        {
+            opts[OPT_VAR[optDrag]] = optDragValue;
+            optDrag = Item.None;
+            async! ApplyOptions();
+        }
+        // the menu that owns the id handles the click, if the cursor is still on it
+        else if (hit != Ctrl.None && hit == hovered)
+        {
+            if (hit < HIT_TRACK)
+                async! ActivateCtrl(hit);
+            else if (hit < HIT_OPT)
+                TrackMenuClick(hit);
+            else if (hit < HIT_CONFIRM)
+                async! ActivateOption(hit - HIT_OPT);
+            else
+                async! ActivateConfirm(hit - HIT_CONFIRM);
+        }
+    }
+
+    else if (IsJumpHeld())
+    {
+        if (recording)
+        {
+            async! ActivateCtrl(Ctrl.Record);
+        }
+        else if (playbackActive && IsCrouchHeld())
+        {
+            async! ActivateCtrl(Ctrl.Stop);
+        }
+        else if (ShowsPause())
+        {
+            async! ActivateCtrl(Ctrl.Pause);
+        }
+        else // stopped, or firstPerson paused by the timeline (Play closes it)
+        {
+            async! ActivateCtrl(Ctrl.Play);
+        }
+    }
+    else if (IsUltimateHeld())
+    {
+        if (IsAbility1Held())
+        {
+            async! ActivateCtrl(Ctrl.Rewind);
+            Abort();
+        }
+
+        while (IsUltimateHeld())
+        {
+            async! ActivateCtrl(Ctrl.PrevFrame);
+            WaitIfTrue(0.125);
+        }
+    }
+    else if (IsAbility2Held())
+    {
+        if (IsAbility1Held())
+        {
+            async! ActivateCtrl(Ctrl.Forward);
+            Abort();
+        }
+
+        while (IsAbility2Held())
+        {
+            async! ActivateCtrl(Ctrl.NextFrame);
+            WaitIfTrue(0.125);
+        }
+    }
+}
+
+rule: "recording r + f x2 keybind"
+Event.OngoingPlayer
+if (player == host) // the track storage is global, only the host records
+if (!tracksBusy) // recording shares the import samples
+if (!HasBit(botButtons, BIT_RELOAD) && !HasBit(botButtons, BIT_INTERACT)) // not a recorded reload or interact while playing FirstPerson
+if (IsReloadHeld() && IsInteractHeld())
+{
+    WaitUntil(!IsInteractHeld(), 99999);
+    WaitUntil(IsInteractHeld() || !IsReloadHeld(), 0.25);
+    AbortIf(!IsReloadHeld() || !IsInteractHeld());
+
+    async! ToggleRecording();
+}
+
+rule: "scrub keybind"
+Event.OngoingPlayer
+if (timelineOpen)
+if (canUseKeybinds)
+if (!recording)
+if (!IsDragging(player))
+if (!IsAbility1Held())
+if (!IsInteractHeld())
+if (Abs(ThrottleX()) > 0.5)
+{
+    // 20 D taps (steps?) to reach end of timeline from frame 0 regardless of length, maybe make this an option to scale with track length instead of the full recording?
+    StopForSeek();
+    currFrame = Clamp(currFrame + (ThrottleX() > 0 ? -1 : 1) * Ceil(timelineFrames / 20), trimStart, trimEnd);
+    
+    WaitIfTrue(0.125);
+    LoopIfConditionIsTrue();
+}
+
+rule: "flag jump keybind"
+Event.OngoingPlayer
+if (timelineOpen)
+if (canUseKeybinds)
+if (!animating)
+if (!recording)
+if (!IsDragging(player))
+if (IsAbility1Held())
+if (Abs(ThrottleX()) > 0.5)
+{
+    Number[] targets! = ThrottleX() < 0
+        ? SortedArray(flags.Filter(f => f > currFrame && f <= trimEnd), Curr())    // right ascending
+        : SortedArray(flags.Filter(f => f < currFrame && f >= trimStart), -Curr()); // left descending
+
+    StopForSeek();
+
+    if (targets.Length > 0)
+        currFrame = targets.First;
+    else
+        currFrame = ThrottleX() > 0 ? trimStart : trimEnd;
+
+    WaitUntil(Abs(ThrottleX()) < 0.5 || !IsAbility1Held(), 99999);
+}
