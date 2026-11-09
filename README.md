@@ -78,7 +78,7 @@ Before doing anything, ensure that `Enable Workshop Inspector` and `Enable Works
 The inspector can't be cleared by the script and keeps every export since the lobby began. If you exported more than once, new exports will start with a `/* ===== DELETE EVERYTHING RIGHT BEFORE THIS COMMENT ===== */` line, delete everything right before the **very last** one so you get the latest export.
 
 ### Importing 
-1. Before loading into Swiss, copy the contents of an export with the very first timestamp removed (or everything before the "`DELETE EVERYTHING`" comment). Make sure the export’s map is the only one enabled in `Settings > Maps`. Swiss will give you a warning ingame if the incorrect map is loaded
+1. Before loading into Swiss, copy the contents of an export with the very first timestamp removed (or everything after the "`DELETE EVERYTHING`" comment). Make sure the export’s map is the only one enabled in `Settings > Maps`. Swiss will give you a warning ingame if the incorrect map is loaded
 2. In the custom game lobby, click on `Settings > Workshop`, then click on the orange paste button at the top right. Long recordings are split into multiple rules (`[IMPORT 1234] part 2`, `part 3`, ..., each rule of an export will show the same number) since one rule can't be above 98 KB - they all come from one paste and can be in any order, but each part has to be there. If any part is missing, Swiss shows "Import failed!" and imports nothing.
 3. Load the map and wait, your recordings will be loaded in over time. **Delete previous import rules or start a brand new lobby before importing a different recording**.
 
