@@ -63,7 +63,7 @@ Event.OngoingPlayer
 if (OptOn(Opt.Noclip))
 if (!firstPerson)
 {
-    noclipDir = timelineOpen || orbitCam ? Vector(0, 0, 0)
+    noclipDir = timelineOpen || orbitCam || punchLocked ? Vector(0, 0, 0)
         : Facing() * ThrottleOf().Z + WorldVectorOf(Left(), player, LocalVector.Rotation) * ThrottleX()
             + Up() * ((IsJumpHeld() ? 1 : 0) - (IsCrouchHeld() ? 1 : 0));
 
