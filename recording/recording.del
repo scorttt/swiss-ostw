@@ -385,6 +385,7 @@ if (!timelineOpen)
         // lined up within the ring and sphere, so correct whatever error is there. a player that's held in the air is let go at the forward differenced velocity
         if (guides && punchAir)
         {
+            MinWait();
             SetFacing(player, punchDir, Relative.ToWorld);
             ApplyImpulse(player, punchVel, Mag(punchVel), Relative.ToWorld, ContraryMotion.Cancel);
         }
