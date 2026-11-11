@@ -47,14 +47,24 @@ void SlotRecChunk() playervar "rec - slot chunk"
 // the slots and the copy are emptied after left full they're stored data on top of the tracks that the limits dont count (stored data makes the load spikes)
 void FlushRecSlots() playervar "rec - flush slots"
 {
-    if (recSlotsUsed == 0)
+    if (recSlotsUsed == 0 && recSlotKeep == 0)
         return;
 
-    recTake = [recSlot0, recSlot1, recSlot2, recSlot3, recSlot4, 
-               recSlot5, recSlot6, recSlot7, recSlot8, recSlot9, 
-               recSlot10, recSlot11, recSlot12, recSlot13, recSlot14, 
-               recSlot15, recSlot16, recSlot17, recSlot18, recSlot19].Slice(0, recSlotsUsed);
-    
+    recTake = [];
+
+    if (recSlotKeep > 0)
+    {
+        LoadTrackStage(recSlotTrack);
+        recTake = recTake.Slice(0, recSlotKeep);
+        ClearTrack(recSlotTrack);
+        recSlotKeep = 0;
+    }
+
+    recTake += [recSlot0, recSlot1, recSlot2, recSlot3, recSlot4,
+                recSlot5, recSlot6, recSlot7, recSlot8, recSlot9,
+                recSlot10, recSlot11, recSlot12, recSlot13, recSlot14,
+                recSlot15, recSlot16, recSlot17, recSlot18, recSlot19].Slice(0, recSlotsUsed);
+
     AppendTrackStage(recSlotTrack);
     
     recTake = [];
@@ -98,9 +108,13 @@ void RecLevelsFlush() playervar "rec - level flush"
     FlushRecSlots();
 }
 
-void BeginTake(Number t!) playervar "rec - begin take"
+// a retake keeps the track's first keep chunks, the rest stays stored until FlushRecSlots cuts it
+void BeginTake(Number t!, Number keep! = 0) playervar "rec - begin take"
 {
-    ClearTrack(t);
+    if (keep == 0)
+        ClearTrack(t);
+
+    recSlotKeep = keep;
     recChunk = [];
     recMid = [];
     recBuf = [];
@@ -111,22 +125,21 @@ void BeginTake(Number t!) playervar "rec - begin take"
 // a retake keeps the first kept samples of track t. whole chunks stay in storage, the rest of the next chunk goes back into the levels
 void BeginPunch(Number t!, Number kept!) playervar "rec - begin punch"
 {
-    LoadTrackStage(t);
-    BeginTake(t); // the staged copy keeps the samples
-    Number c! = Floor(kept / CHUNK_SIZE); // chunk the take starts in
+    // the chunk the take starts in, read before BeginTake clears a track that keeps no whole chunk. read like a bot reads it, the human plays no track while recording
+    botTrack = t;
+    tickI = Floor(kept / CHUNK_SIZE);
+    ReadChunkToA();
+    BeginTake(t, tickI);
     Number mids! = Floor(kept % CHUNK_SIZE / MID_SIZE) * MID_SIZE;
 
     // less than a mid goes through recBuf, so no level fills up here
-    recChunk = recTake[c].Slice(0, mids);
+    recChunk = botChunkA.Slice(0, mids);
     for (Number s! = mids; s < kept % CHUNK_SIZE; s++)
     {
-        recBuf += recTake[c][s];
+        recBuf += botChunkA[s];
         RecLevelsUp();
     }
-
-    recTake = recTake.Slice(0, c);
-    AppendTrackStage(t);
-    recTake = [];
+    botChunkA = [];
 }
 
 rule: "instant respawn"
@@ -296,7 +309,6 @@ if (!timelineOpen)
             punchVel = (readPos - punchPos) / delta;
             StartForcingPlayerPosition(player, punchPos, false); // for some reason this makes the player's aim feel floaty - dont care!
         }
-        currFrame = target; // the other bots show the frame the retake starts at
 
         // the sphere sits along the recorded aim from the player's eye height at the spot, backed off the first surface until it just touches it
         Vector eye! = punchPos + EyePos() - PosOf();
@@ -328,6 +340,7 @@ if (!timelineOpen)
         ReadTrackSample(focusedTrack, 0);
         TeleportFacing(readPos, LookDir(readLook));
     }
+    currFrame = target; // the other bots show the frame the take starts at
 
     // retake countdown only while lined up, and cancels if the player looks away. move speed is 0 while lined up, so keys can be held before recording actually starts
     Number end! = -1; // countdown end. -1 while not counting

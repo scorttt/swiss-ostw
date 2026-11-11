@@ -82,6 +82,7 @@ globalvar Sample[] recSlot18;
 globalvar Sample[] recSlot19;
 globalvar Number recSlotsUsed!;
 globalvar Number recSlotTrack!;
+globalvar Number recSlotKeep!;  // chunks a retake keeps of recSlotTrack, the old take after them is cut at the take's first flush. 0 once cut
 
 // samples read by ReadTrackSample
 playervar Vector readPos!;
