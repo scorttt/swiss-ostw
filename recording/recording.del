@@ -205,6 +205,8 @@ playervar Boolean preRolling!;
 Number PUNCH_POS_RADIUS: 0.50;
 Number PUNCH_AIM_DIST:   10;
 Number PUNCH_AIM_SIZE:   0.05; // sphere radius per meter
+
+Number WHOLE_TAKE: -1; // punchFrame of a whole take, a retake's is the frame it starts at
 playervar Number punchFrame!;
 playervar Vector punchPos!;
 playervar Vector punchDir!;
@@ -215,9 +217,9 @@ playervar Boolean punchAir!; // the recording is in the air at that frame, the p
 playervar Vector punchVel!;
 playervar Boolean punchLocked!;
 
-Boolean CanRetake(Player p = player): HasRecording(p) && p.currFrame > p.recStart;
-Number TakeStart(Player p = player): p.punchFrame == -1 ? p.recStart : p.punchFrame;
-Boolean RecordRetakes(Player p = player): CanRetake(p) && (!p.recordArmed || p.punchFrame != -1);
+Boolean CanRetake(Player p = player): HasRecording(p) && p.currFrame > p.recStart && p.recStart + p.recFrames > p.trimStart && RetakeHeroMatches(p);
+Number TakeStart(Player p = player): p.punchFrame == WHOLE_TAKE ? p.recStart : p.punchFrame;
+Boolean RecordRetakes(Player p = player): CanRetake(p) && (!p.recordArmed || p.punchFrame != WHOLE_TAKE);
 Boolean RetakeHeroMatches(Player p = player): HeroOf(p) == p.trackHero[p.focusedTrack];
 Boolean PunchInPlace(): DistanceBetween(Vector(PosOf().X, 0, PosOf().Z), Vector(punchPos.X, 0, punchPos.Z)) <= PUNCH_POS_RADIUS;
 Boolean PunchAimed():   DistanceBetween(EyePos() + Facing() * DistanceBetween(EyePos(), punchAim), punchAim) <= punchAimR;
@@ -228,16 +230,16 @@ Event.OngoingPlayer
 if (recordArmed)
 if (!timelineOpen)
 {
-
-    if (!RecordRetakes())
-        punchFrame = -1;
-
-    if (punchFrame != -1 && HeroOf() != trackHero[focusedTrack])
+    // a retake armed on a track recorded with another hero
+    if (punchFrame != WHOLE_TAKE && !RetakeHeroMatches())
     {
         recordArmed = false;
         SmallMessage(player, <"Track <0> needs <1>, change hero or replace the whole track", focusedTrack + 1, trackHero[focusedTrack]>);
         return;
     }
+
+    if (!CanRetake())
+        punchFrame = WHOLE_TAKE;
 
     // take replaces the focused track, only other tracks count toward MAX_TOTAL_SAMPLES
     recOthers = 0;
@@ -268,7 +270,7 @@ if (!timelineOpen)
 
     Number from! = currFrame;
     Number target! = OptOn(Opt.RecFromTrimStart) ? trimStart : currFrame; // take start
-    Boolean guides! = punchFrame != -1;
+    Boolean guides! = punchFrame != WHOLE_TAKE;
     Any posRing!;
     Any posSphere!;
     Any aimSphere!;
@@ -411,7 +413,7 @@ void StartRecording() playervar "rec - start recording"
 
     trackHero[focusedTrack] = HeroOf();
 
-    if (punchFrame == -1)
+    if (punchFrame == WHOLE_TAKE)
     {
         ResetHeroConsumables();
         flags = [];
@@ -437,7 +439,7 @@ void StartRecording() playervar "rec - start recording"
     UpdateTimelineFrames();
 
     // a retake continues the recorded health
-    if (punchFrame != -1 && punchHealth > 0)
+    if (punchFrame != WHOLE_TAKE && punchHealth > 0)
         SetPlayerHealth(player, punchHealth);
     else if (OptOn(Opt.RecHealth))
         SetPlayerHealth(player, RecHealth());
@@ -450,7 +452,7 @@ void StopRecording() playervar "rec - stop recording"
 {
     recording = false;
     currFrame = TakeStart();
-    punchFrame = -1;
+    punchFrame = WHOLE_TAKE;
     trackLabelsFresh = false;
     RecLevelsFlush();
 
@@ -558,7 +560,7 @@ void ToggleRecording() playervar "rec - toggle recording"
     else
     {
         recordArmed = !recordArmed;
-        punchFrame = -1; // the keybind always records the whole track
+        punchFrame = WHOLE_TAKE; // the keybind always records the whole track
         recBindTime = -REC_CONFIRM_TIME;
     }
 }

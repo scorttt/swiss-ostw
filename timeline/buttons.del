@@ -56,7 +56,7 @@ Boolean[] CtrlEnabledNow():
         currFrame != trimStart,                                                                     // PrevFrame
         currFrame != trimEnd,                                                                       // NextFrame
         true,                                                                                       // Options
-        !RecordRetakes() || RetakeHeroMatches() || recording,                                       // Record, a retake needs the track's hero
+        true,                                                                                       // Record
         true,                                                                                       // Track
         (recording || HasRecording()) && (flags.Contains(currFrame) || flags.Length < MAX_FLAGS),   // AddFlag
         HasRecording(),                                                                             // DeleteTrack
@@ -147,7 +147,7 @@ rule: "create button texts"
                              : local.recording
                                  ? <"Stop Recording [Hold <0> + <1> x2]", BindString(Button.Reload), BindString(Button.Interact)>
                                  : local.recordArmed
-                                     ? local.punchFrame != -1 && CanRetake(local) ? "Cancel Retake, click again to replace track" : "Cancel Recording"
+                                     ? local.punchFrame != WHOLE_TAKE && CanRetake(local) ?"Cancel Retake, click again to replace track" : "Cancel Recording"
                                      : CanRetake(local)
                                          ? "Retake from playhead"
                                          : <"Start Recording [Hold <0> + <1> x2]", BindString(Button.Reload), BindString(Button.Interact)>,
@@ -319,13 +319,13 @@ void ActivateCtrl(Number | Ctrl ctrl!) playervar "tl - selection handler"
             if (recordArmed)
             {
                 if (RecordRetakes())
-                    punchFrame = -1;
+                    punchFrame = WHOLE_TAKE;
                 else
                     recordArmed = false;
                 break;
             }
 
-            punchFrame = CanRetake() ? currFrame : -1; // the countdown takes the retake's frame from the playhead, it can be seeked meanwhile
+            punchFrame = CanRetake() ? currFrame : WHOLE_TAKE; // the countdown takes the retake's frame from the playhead, it can be seeked meanwhile
             recordArmed = true;
             break;
         case Ctrl.Track:
