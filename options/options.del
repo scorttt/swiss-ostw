@@ -133,6 +133,7 @@ globalvar Number[] OPT_PARENT;
 globalvar Number[] OPT_VAR;     // index into opts
 globalvar Number[] OPT_ARG;     // toggle or radio value, or slider index into SLIDER_
 globalvar String[] OPT_LABEL;
+globalvar String[] OPT_LABEL_OFF!; // a cycle's label while it's off
 
 void OptionItem(Number | Item id!, Number | OptKind kind!, Number col!, Number | Item parent!, String label!, Number | Opt opt! = 0, Number | Persp | Slider arg! = 0) globalvar "opt - item"
 {
@@ -169,4 +170,6 @@ void InitOptionTables()
     OptionItem(Item.EndGame,            OptKind.Confirm, 2,   Item.None,                  "End game");
     OptionItem(Item.RecHealth,          OptKind.Toggle,  0,   Item.None,                  "Set recording health",                      Opt.RecHealth);
     OptionItem(Item.RecHealthValue,     OptKind.Slider,  0,   Item.RecHealth,             "Health",                                    Opt.RecHealthValue, Slider.Health);
+
+    OPT_LABEL_OFF = OPT_LABEL.Map((l, i) => i == Item.PlayAll ? "Only play focused track in editor" : "");
 }

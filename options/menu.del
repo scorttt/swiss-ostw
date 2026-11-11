@@ -68,7 +68,7 @@ if (!optLabelsFresh)
         else if (OPT_KIND[id] == OptKind.Group)
             optLabels[id] = <"<0> <1>", OPT_LABEL[id], expandedOpt == id ? "−" : "+">;
         else if (OPT_KIND[id] == OptKind.Cycle)
-            optLabels[id] = OptOn(OPT_VAR[id]) ? OPT_LABEL[id] : "Only play focused track in editor";
+            optLabels[id] = OptOn(OPT_VAR[id]) ? OPT_LABEL[id] : OPT_LABEL_OFF[id];
         else
             optLabels[id] = OPT_LABEL[id];
     }
