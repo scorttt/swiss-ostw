@@ -236,6 +236,7 @@ playervar Boolean canRetake!;
 
 Number TakeStart(Player p = player): p.punchFrame == WHOLE_TAKE ? p.recStart : p.punchFrame;
 Boolean RecordRetakes(Player p = player): p.canRetake && (!p.recordArmed || p.punchFrame != WHOLE_TAKE);
+Number RetakeStart(Player p = player): Min(p.currFrame, p.recStart + p.recFrames - 1);
 Boolean RetakeHeroMatches(): HeroOf() == trackHero[focusedTrack];
 Boolean PunchInPlace(): DistanceBetween(Vector(PosOf().X, 0, PosOf().Z), Vector(punchPos.X, 0, punchPos.Z)) <= PUNCH_POS_RADIUS;
 Boolean PunchAimed():   DistanceBetween(EyePos() + Facing() * DistanceBetween(EyePos(), punchAim), punchAim) <= punchAimR;
@@ -301,7 +302,7 @@ if (!timelineOpen)
     if (guides)
     {
         // a retake starts at the playhead within the track
-        target = Min(currFrame, recStart + recFrames - 1);
+        target = RetakeStart();
         punchFrame = target;
         Number s! = target - recStart;
         ReadTrackSample(focusedTrack, s);
@@ -363,6 +364,10 @@ if (!timelineOpen)
             preRolling = OptOn(Opt.PreRoll) && OptOn(Opt.PlayWhileRecording) && target >= REC_COUNTDOWN / delta;
             punchLocked = guides;
             ApplyMovementState();
+
+            // the frame it starts at, a playhead past the track's end is moved to its last frame
+            if (guides)
+                SmallMessage(player, <"Retaking track <0> at <1>", focusedTrack + 1, FormattedFrameToSec(target)>);
         }
         else if (!tickJ && end != -1)
         {

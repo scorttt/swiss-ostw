@@ -149,7 +149,7 @@ rule: "create button texts"
                                  : local.recordArmed
                                      ? local.punchFrame != WHOLE_TAKE && local.canRetake ? "Cancel Retake, click again to replace track" : "Cancel Recording"
                                      : local.canRetake
-                                         ? "Retake from playhead"
+                                         ? local.currFrame < local.recStart + local.recFrames ? "Retake from playhead" : "Retake from end of track"
                                          : <"<0> [Hold <1> + <2> x2]", HasRecording(local) ? "Replace Track" : "Start Recording", BindString(Button.Reload), BindString(Button.Interact)>,
                          "",                                                                                         // Track
                          IsAbility1Held(local) && local.flags.Length > 0
