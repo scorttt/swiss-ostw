@@ -320,6 +320,10 @@ if (!timelineOpen)
             StartForcingPlayerPosition(player, punchPos, false); // for some reason this makes the player's aim feel floaty - dont care!
         }
 
+        // the frame a retake starts at, a playhead past the track's end is moved to its last frame
+        if (currFrame >= recStart + recFrames)
+            SmallMessage(player, <"Retaking from the end of track <0> (<1>)", focusedTrack + 1, FormattedFrameToSec(target)>);
+
         // the sphere sits along the recorded aim from the player's eye height at the spot, backed off the first surface until it just touches it
         Vector eye! = punchPos + EyePos() - PosOf();
         Vector aimEnd! = eye + punchDir * PUNCH_AIM_DIST;
@@ -364,10 +368,6 @@ if (!timelineOpen)
             preRolling = OptOn(Opt.PreRoll) && OptOn(Opt.PlayWhileRecording) && target >= REC_COUNTDOWN / delta;
             punchLocked = guides;
             ApplyMovementState();
-
-            // the frame it starts at, a playhead past the track's end is moved to its last frame
-            if (guides)
-                SmallMessage(player, <"Retaking track <0> at <1>", focusedTrack + 1, FormattedFrameToSec(target)>);
         }
         else if (!tickJ && end != -1)
         {
