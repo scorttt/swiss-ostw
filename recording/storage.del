@@ -16,33 +16,38 @@ struct Sample
 {
     public Vector Pos;
     // regular PosOf() vector
+
     public Vector Look;
     // X: HorizontalAngleFromDirection, Y: VerticalAngleFromDirection, Z: health
 
     public Vector Ctrl;
-    // X throttle, Y buttons (BIT_), Z throttle
+    // X throttle, Y buttons (Bit), Z throttle
 }
 
-// Sample.Ctrl.Y bits. held buttons
-Number BIT_PRIMARY:   1;
-Number BIT_SECONDARY: 2;
-Number BIT_ABILITY1:  4;
-Number BIT_ABILITY2:  8;
-Number BIT_ULTIMATE:  16;
-Number BIT_INTERACT:  32;
-Number BIT_JUMP:      64;
-Number BIT_CROUCH:    128;
-Number BIT_MELEE:     256;
-Number BIT_RELOAD:    512;
-// abilities in use, the bits below USING_AB1 are the held buttons
-Number BIT_USING_AB1: 1024;
-Number BIT_USING_AB2: 2048;
-Number BIT_USING_ULT: 4096;
-// misc
-Number BIT_GROUND:    8192;
-Number BIT_DEAD:      16384; // the highest bit, >= BIT_DEAD is dead
+// Sample.Ctrl.Y bits
+enum Bit
+{
+    // held buttons
+    Primary   = 1,
+    Secondary = 2,
+    Ability1  = 4,
+    Ability2  = 8,
+    Ultimate  = 16,
+    Interact  = 32,
+    Jump      = 64,
+    Crouch    = 128,
+    Melee     = 256,
+    Reload    = 512,
+    // abilities in use, the bits below UsingAb1 are the held buttons
+    UsingAb1  = 1024,
+    UsingAb2  = 2048,
+    UsingUlt  = 4096,
+    // misc
+    Ground    = 8192,
+    Dead      = 16384 // the highest bit, >= Bit.Dead is dead
+}
 
-Boolean HasBit(Number bits, Number bit): Floor(bits / bit) % 2 == 1;
+Boolean HasBit(Number bits, Number | Bit bit): Floor(bits / bit) % 2 == 1;
 Vector LookDir(Vector look): DirectionFromAngles(look.X, look.Y); // Sample.Look as a facing direction
 
 // per track storage. globals, only the host records and player variables are full
@@ -133,16 +138,16 @@ void AppendTrackStage(Number t!) playervar "rec - append track"
 {
     switch (t)
     {
-        case 0:  trackChunks0 += recTake;  break;
-        case 1:  trackChunks1 += recTake;  break;
-        case 2:  trackChunks2 += recTake;  break;
-        case 3:  trackChunks3 += recTake;  break;
-        case 4:  trackChunks4 += recTake;  break;
-        case 5:  trackChunks5 += recTake;  break;
-        case 6:  trackChunks6 += recTake;  break;
-        case 7:  trackChunks7 += recTake;  break;
-        case 8:  trackChunks8 += recTake;  break;
-        case 9:  trackChunks9 += recTake;  break;
+        case 0:  trackChunks0  += recTake; break;
+        case 1:  trackChunks1  += recTake; break;
+        case 2:  trackChunks2  += recTake; break;
+        case 3:  trackChunks3  += recTake; break;
+        case 4:  trackChunks4  += recTake; break;
+        case 5:  trackChunks5  += recTake; break;
+        case 6:  trackChunks6  += recTake; break;
+        case 7:  trackChunks7  += recTake; break;
+        case 8:  trackChunks8  += recTake; break;
+        case 9:  trackChunks9  += recTake; break;
         case 10: trackChunks10 += recTake; break;
         case 11: trackChunks11 += recTake; break;
     }
@@ -153,16 +158,16 @@ void CutAppendTrackStage(Number t!) playervar "rec - cut and append track"
 {
     switch (t)
     {
-        case 0:  trackChunks0 = trackChunks0.Slice(0, recSlotKeep) + recTake;   break;
-        case 1:  trackChunks1 = trackChunks1.Slice(0, recSlotKeep) + recTake;   break;
-        case 2:  trackChunks2 = trackChunks2.Slice(0, recSlotKeep) + recTake;   break;
-        case 3:  trackChunks3 = trackChunks3.Slice(0, recSlotKeep) + recTake;   break;
-        case 4:  trackChunks4 = trackChunks4.Slice(0, recSlotKeep) + recTake;   break;
-        case 5:  trackChunks5 = trackChunks5.Slice(0, recSlotKeep) + recTake;   break;
-        case 6:  trackChunks6 = trackChunks6.Slice(0, recSlotKeep) + recTake;   break;
-        case 7:  trackChunks7 = trackChunks7.Slice(0, recSlotKeep) + recTake;   break;
-        case 8:  trackChunks8 = trackChunks8.Slice(0, recSlotKeep) + recTake;   break;
-        case 9:  trackChunks9 = trackChunks9.Slice(0, recSlotKeep) + recTake;   break;
+        case 0:  trackChunks0 =  trackChunks0 .Slice(0, recSlotKeep) + recTake; break;
+        case 1:  trackChunks1 =  trackChunks1 .Slice(0, recSlotKeep) + recTake; break;
+        case 2:  trackChunks2 =  trackChunks2 .Slice(0, recSlotKeep) + recTake; break;
+        case 3:  trackChunks3 =  trackChunks3 .Slice(0, recSlotKeep) + recTake; break;
+        case 4:  trackChunks4 =  trackChunks4 .Slice(0, recSlotKeep) + recTake; break;
+        case 5:  trackChunks5 =  trackChunks5 .Slice(0, recSlotKeep) + recTake; break;
+        case 6:  trackChunks6 =  trackChunks6 .Slice(0, recSlotKeep) + recTake; break;
+        case 7:  trackChunks7 =  trackChunks7 .Slice(0, recSlotKeep) + recTake; break;
+        case 8:  trackChunks8 =  trackChunks8 .Slice(0, recSlotKeep) + recTake; break;
+        case 9:  trackChunks9 =  trackChunks9 .Slice(0, recSlotKeep) + recTake; break;
         case 10: trackChunks10 = trackChunks10.Slice(0, recSlotKeep) + recTake; break;
         case 11: trackChunks11 = trackChunks11.Slice(0, recSlotKeep) + recTake; break;
     }

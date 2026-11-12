@@ -233,7 +233,7 @@ void ExpRead(Number s!) playervar "export - read"
     expV = expCh == Chan.Pos ? recTake[tickI][tickJ].Pos : Vector(expKv.X + Wrap(recTake[tickI][tickJ].Look.X - expKv.X), recTake[tickI][tickJ].Look.Y, 0);
     expT = expCh == Chan.Look
         ? Vector(ANG_TOL, ANG_TOL, 0)
-        : HasBit(recTake[tickI][tickJ].Ctrl.Y, BIT_GROUND)
+        : HasBit(recTake[tickI][tickJ].Ctrl.Y, Bit.Ground)
             ? Vector(GROUND_TOL_XZ, GROUND_TOL, GROUND_TOL_XZ)
             : Vector(POS_TOL, POS_TOL, POS_TOL);
 }

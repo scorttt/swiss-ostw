@@ -115,7 +115,7 @@ if (botTrack != focusedTrack)
 }
 
 // Jump / Crouch held by the player, not replayed from the recording
-Boolean FirstPersonKeyHeld(): (IsJumpHeld() && !HasBit(botButtons, BIT_JUMP)) || (IsCrouchHeld() && !HasBit(botButtons, BIT_CROUCH));
+Boolean FirstPersonKeyHeld(): (IsJumpHeld() && !HasBit(botButtons, Bit.Jump)) || (IsCrouchHeld() && !HasBit(botButtons, Bit.Crouch));
 
 // Jump / Crouch only detach once released after attaching or closing the timeline, Space starts playback and is
 // usually still held when the timeline closes

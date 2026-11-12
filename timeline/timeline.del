@@ -305,7 +305,7 @@ rule: "open menu toggle"
 Event.OngoingPlayer
 if (player == host) // the track storage is global, only the host edits
 if (!tracksBusy) // an export reads the tracks and an import writes them, nothing may edit them
-if (!HasBit(botButtons, BIT_INTERACT)) // not a recorded interact while playing FirstPerson
+if (!HasBit(botButtons, Bit.Interact)) // not a recorded interact while playing FirstPerson
 if (IsInteractHeld())
 if (!IsJumpHeld())
 if (!IsReloadHeld()) // reload + interact x2 is the recording keybind

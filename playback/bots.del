@@ -65,7 +65,7 @@ Number BotButtons():  BotCtrl().Y;
 Number BotLeadS(): Min(botS + CORRECT_LEAD, botFrames - 1);
 Vector BotLeadPos(Number s): Floor(s / CHUNK_SIZE) == botWinC ? botChunkA[s % CHUNK_SIZE].Pos : botNextPos[s % CHUNK_SIZE]; // s from BotLeadS
 Number BotRecHealth(): BotLook().Z > 0 ? BotLook().Z : MaxHealth();
-Number BotGravityNow(): botDriven || HasBit(BotButtons(), BIT_GROUND) ? 100 : 0;
+Number BotGravityNow(): botDriven || HasBit(BotButtons(), Bit.Ground) ? 100 : 0;
 
 void SpawnTrackBot(Number t!) playervar "bot - spawn track bot"
 {
@@ -117,7 +117,7 @@ globalvar Button[] BOT_BUTTONS! = [Button.PrimaryFire, Button.SecondaryFire, But
 // holds the held button bits of botBtn (the bits above them are ignored)
 void SetBotButtons() playervar "bot - set buttons"
 {
-    if (botBtn % BIT_USING_AB1 == botButtons)
+    if (botBtn % Bit.UsingAb1 == botButtons)
         return;
 
     for (tickI = 0; tickI < 10; tickI++) // BOT_BUTTONS
@@ -130,7 +130,7 @@ void SetBotButtons() playervar "bot - set buttons"
                 StopHoldingButton(player, BOT_BUTTONS[tickI]);
         }
     }
-    botButtons = botBtn % BIT_USING_AB1;
+    botButtons = botBtn % Bit.UsingAb1;
 }
 
 void StopMomentum() playervar "bot - stop momentum"
@@ -312,7 +312,7 @@ if (EntityExists(botOwner))
             if (Floor(botS / CHUNK_SIZE) != botWinC)
                 LoadBotWindow();
 
-            botSampleDead = BotButtons() >= BIT_DEAD;
+            botSampleDead = BotButtons() >= Bit.Dead;
 
             botFacing = BotFacing();
             if (IsDummyBot() && IsAlive())
@@ -460,13 +460,13 @@ if (EntityExists(botOwner))
                 botBtn = BotButtons();
 
                 // recording dies here, full loop kills the bot
-                if (botBtn >= BIT_DEAD)
+                if (botBtn >= Bit.Dead)
                 {
                     botSampleDead = true;
                     break;
                 }
 
-                if (botBtn % BIT_USING_AB1 != botButtons)
+                if (botBtn % Bit.UsingAb1 != botButtons)
                     SetBotButtons();
 
                 botFacing = BotFacing();
@@ -479,20 +479,20 @@ if (EntityExists(botOwner))
                     SetPlayerHealth(player, tickJ);
 
                 // some abilities somehow randomly break on bots (and only bots for some reason!!!), press it again at most every RETAP_FRAMES
-                if (botBtn % BIT_USING_ULT >= BIT_USING_AB1 && Abs(botOwner.currFrame - botRetapFrame) > RETAP_FRAMES) // ability 1 or 2 in use
+                if (botBtn % Bit.UsingUlt >= Bit.UsingAb1 && Abs(botOwner.currFrame - botRetapFrame) > RETAP_FRAMES) // ability 1 or 2 in use
                 {
-                    if (HasBit(botBtn, BIT_USING_AB1) && !IsUsingAbility1())
+                    if (HasBit(botBtn, Bit.UsingAb1) && !IsUsingAbility1())
                     {
                         StopHoldingButton(player, Button.Ability1);
                         PressButton(player, Button.Ability1);
-                        botButtons -= HasBit(botButtons, BIT_ABILITY1) ? BIT_ABILITY1 : 0; // held again on the next frame
+                        botButtons -= HasBit(botButtons, Bit.Ability1) ? Bit.Ability1 : 0; // held again on the next frame
                         botRetapFrame = botOwner.currFrame;
                     }
-                    else if (HasBit(botBtn, BIT_USING_AB2) && !IsUsingAbility2())
+                    else if (HasBit(botBtn, Bit.UsingAb2) && !IsUsingAbility2())
                     {
                         StopHoldingButton(player, Button.Ability2);
                         PressButton(player, Button.Ability2);
-                        botButtons -= HasBit(botButtons, BIT_ABILITY2) ? BIT_ABILITY2 : 0;
+                        botButtons -= HasBit(botButtons, Bit.Ability2) ? Bit.Ability2 : 0;
                         botRetapFrame = botOwner.currFrame;
                     }
                 }

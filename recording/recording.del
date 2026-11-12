@@ -308,7 +308,7 @@ if (!timelineOpen)
         punchPos = readPos;
         punchDir = LookDir(readLook);
         punchHealth = readLook.Z;
-        punchAir = !HasBit(readCtrl.Y, BIT_GROUND);
+        punchAir = !HasBit(readCtrl.Y, Bit.Ground);
         TeleportFacing(punchPos, punchDir);
 
         // hold the player in air
@@ -525,11 +525,11 @@ if (recording)
             Pos:  PosOf(),
             Look: Vector(HorizontalAngleFromDirection(Facing()), VerticalAngleFromDirection(Facing()), Health()),
             Ctrl: Vector(ThrottleX(),
-                    (IsPrimaryHeld() ? BIT_PRIMARY : 0) + (IsSecondaryHeld() ? BIT_SECONDARY : 0) + (IsAbility1Held() ? BIT_ABILITY1 : 0)
-                    + (IsAbility2Held() ? BIT_ABILITY2 : 0) + (IsUltimateHeld() ? BIT_ULTIMATE : 0) + (IsInteractHeld() ? BIT_INTERACT : 0)
-                    + (IsJumpHeld() ? BIT_JUMP : 0) + (IsCrouchHeld() ? BIT_CROUCH : 0) + (IsMeleeHeld() ? BIT_MELEE : 0) + (IsReloadHeld() ? BIT_RELOAD : 0)
-                    + (IsUsingAbility1() ? BIT_USING_AB1 : 0) + (IsUsingAbility2() ? BIT_USING_AB2 : 0) + (IsUsingUltimate() ? BIT_USING_ULT : 0)
-                    + (IsOnGround() ? BIT_GROUND : 0) + (IsDead() ? BIT_DEAD : 0),
+                    (IsPrimaryHeld() ? Bit.Primary : 0) + (IsSecondaryHeld() ? Bit.Secondary : 0) + (IsAbility1Held() ? Bit.Ability1 : 0)
+                    + (IsAbility2Held() ? Bit.Ability2 : 0) + (IsUltimateHeld() ? Bit.Ultimate : 0) + (IsInteractHeld() ? Bit.Interact : 0)
+                    + (IsJumpHeld() ? Bit.Jump : 0) + (IsCrouchHeld() ? Bit.Crouch : 0) + (IsMeleeHeld() ? Bit.Melee : 0) + (IsReloadHeld() ? Bit.Reload : 0)
+                    + (IsUsingAbility1() ? Bit.UsingAb1 : 0) + (IsUsingAbility2() ? Bit.UsingAb2 : 0) + (IsUsingUltimate() ? Bit.UsingUlt : 0)
+                    + (IsOnGround() ? Bit.Ground : 0) + (IsDead() ? Bit.Dead : 0),
                     ThrottleOf().Z)};
 
         recFrames++;

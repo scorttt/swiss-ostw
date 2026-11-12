@@ -93,7 +93,7 @@ rule: "recording r + f x2 keybind"
 Event.OngoingPlayer
 if (player == host) // the track storage is global, only the host records
 if (!tracksBusy) // recording shares the import samples
-if (!HasBit(botButtons, BIT_RELOAD) && !HasBit(botButtons, BIT_INTERACT)) // not a recorded reload or interact while playing FirstPerson
+if (!HasBit(botButtons, Bit.Reload) && !HasBit(botButtons, Bit.Interact)) // not a recorded reload or interact while playing FirstPerson
 if (IsReloadHeld() && IsInteractHeld())
 {
     WaitUntil(!IsInteractHeld(), 99999);

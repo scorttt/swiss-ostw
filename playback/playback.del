@@ -63,7 +63,7 @@ void SampleState(Number t!, Number f!) playervar "playback - sample state"
         return;
     }
     ReadTrackSample(t, s);
-    snapState = readCtrl.Y % BIT_GROUND >= BIT_USING_AB1 ? Snap.Busy : Snap.Idle; // any ability in use
+    snapState = readCtrl.Y % Bit.Ground >= Bit.UsingAb1 ? Snap.Busy : Snap.Idle; // any ability in use
 }
 
 // snapState is busy if a track that isnt ignored has an ability in use at f, otherwise None
