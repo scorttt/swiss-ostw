@@ -147,10 +147,10 @@ rule: "create button texts"
                              : local.recording
                                  ? <"Stop Recording [Hold <0> + <1> x2]", BindString(Button.Reload), BindString(Button.Interact)>
                                  : local.recordArmed
-                                     ? local.punchFrame != WHOLE_TAKE && CanRetake(local) ?"Cancel Retake, click again to replace track" : "Cancel Recording"
-                                     : CanRetake(local)
+                                     ? local.punchFrame != WHOLE_TAKE && local.canRetake ? "Cancel Retake, click again to replace track" : "Cancel Recording"
+                                     : local.canRetake
                                          ? "Retake from playhead"
-                                         : <"Start Recording [Hold <0> + <1> x2]", BindString(Button.Reload), BindString(Button.Interact)>,
+                                         : <"<0> [Hold <1> + <2> x2]", HasRecording(local) ? "Replace Track" : "Start Recording", BindString(Button.Reload), BindString(Button.Interact)>,
                          "",                                                                                         // Track
                          IsAbility1Held(local) && local.flags.Length > 0
                              ? <"Remove All Flags [<0> + <1>]", BindString(Button.Ability1), BindString(Button.Melee)>
@@ -314,8 +314,7 @@ void ActivateCtrl(Number | Ctrl ctrl!) playervar "tl - selection handler"
                 break;
             }
 
-            // with the playhead inside a recorded track: the first click arms a retake from the playhead, the second the whole track,
-            // the third cancels. at the track's start a retake would replace it all, so it's a normal take there (and armed retakes become one)
+            // where a retake is possible (canRetake): the first click arms a retake from the playhead, the second the whole track, the third cancels. anywhere else the first click arms a whole take
             if (recordArmed)
             {
                 if (RecordRetakes())
@@ -325,7 +324,7 @@ void ActivateCtrl(Number | Ctrl ctrl!) playervar "tl - selection handler"
                 break;
             }
 
-            punchFrame = CanRetake() ? currFrame : WHOLE_TAKE; // the countdown takes the retake's frame from the playhead, it can be seeked meanwhile
+            punchFrame = canRetake ? currFrame : WHOLE_TAKE; // the countdown takes the retake's frame from the playhead, it can be seeked meanwhile
             recordArmed = true;
             break;
         case Ctrl.Track:

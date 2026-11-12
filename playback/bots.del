@@ -156,10 +156,10 @@ void StopBotMotion() playervar "bot - stop motion"
     botMoving = false;
 }
 
-// botChunkA = chunk tickI of the bot's track
-void ReadChunkToA() playervar "bot - read chunk"
+// botChunkA = chunk tickI of track t
+void ReadChunkToA(Number t!) playervar "bot - read chunk"
 {
-    switch (botTrack)
+    switch (t)
     {
         case 0:  botChunkA = trackChunks0[tickI];  break;
         case 1:  botChunkA = trackChunks1[tickI];  break;
@@ -180,10 +180,10 @@ void ReadChunkToA() playervar "bot - read chunk"
 void LoadBotWindow() playervar "bot - load window"
 {
     tickI = Floor(botS / CHUNK_SIZE) + 1;
-    ReadChunkToA();
+    ReadChunkToA(botTrack);
     botNextPos = botChunkA.Slice(0, CORRECT_LEAD).Map(s => s.Pos);
     tickI--;
-    ReadChunkToA();
+    ReadChunkToA(botTrack);
     botWinC = tickI;
 }
 

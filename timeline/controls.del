@@ -46,6 +46,11 @@ if (timelineOpen)
 
     ctrlEnabled = CtrlEnabledNow().Map((on, i) => on && (!recording || i == Ctrl.Record || i == Ctrl.AddFlag));
 
+    // a playhead past the track's end retakes from its last frame
+    tickJ = HasRecording() && currFrame > recStart && recStart + recFrames > trimStart && RetakeHeroMatches();
+    if (canRetake != tickJ)
+        canRetake = tickJ;
+
     if (IsInRange(hoverY, LOWER_ROW_Y_MIN, UPPER_ROW_Y_MAX))
     {
         if (hoverY <= LOWER_ROW_Y_MAX || hoverY >= UPPER_ROW_Y_MIN) // not between the rows

@@ -50,23 +50,20 @@ void FlushRecSlots() playervar "rec - flush slots"
     if (recSlotsUsed == 0 && recSlotKeep == 0)
         return;
 
-    recTake = [];
+    recTake = [recSlot0, recSlot1, recSlot2, recSlot3, recSlot4,
+               recSlot5, recSlot6, recSlot7, recSlot8, recSlot9,
+               recSlot10, recSlot11, recSlot12, recSlot13, recSlot14,
+               recSlot15, recSlot16, recSlot17, recSlot18, recSlot19].Slice(0, recSlotsUsed);
 
+    // a retake's first flush also cuts the old take after the chunks it keeps
     if (recSlotKeep > 0)
     {
-        LoadTrackStage(recSlotTrack);
-        recTake = recTake.Slice(0, recSlotKeep);
-        ClearTrack(recSlotTrack);
+        CutAppendTrackStage(recSlotTrack);
         recSlotKeep = 0;
     }
+    else
+        AppendTrackStage(recSlotTrack);
 
-    recTake += [recSlot0, recSlot1, recSlot2, recSlot3, recSlot4,
-                recSlot5, recSlot6, recSlot7, recSlot8, recSlot9,
-                recSlot10, recSlot11, recSlot12, recSlot13, recSlot14,
-                recSlot15, recSlot16, recSlot17, recSlot18, recSlot19].Slice(0, recSlotsUsed);
-
-    AppendTrackStage(recSlotTrack);
-    
     recTake = [];
     recSlot0 = [];  recSlot1 = [];  recSlot2 = [];  recSlot3 = [];  recSlot4 = [];
     recSlot5 = [];  recSlot6 = [];  recSlot7 = [];  recSlot8 = [];  recSlot9 = [];
@@ -125,11 +122,16 @@ void BeginTake(Number t!, Number keep! = 0) playervar "rec - begin take"
 // a retake keeps the first kept samples of track t. whole chunks stay in storage, the rest of the next chunk goes back into the levels
 void BeginPunch(Number t!, Number kept!) playervar "rec - begin punch"
 {
-    // the chunk the take starts in, read before BeginTake clears a track that keeps no whole chunk. read like a bot reads it, the human plays no track while recording
-    botTrack = t;
+    // the chunk the take starts in, read before BeginTake clears a track that keeps no whole chunk. into botChunkA, the
+    // countdown ended FirstPerson so the human's "bot playback" isn't using it
     tickI = Floor(kept / CHUNK_SIZE);
-    ReadChunkToA();
+    ReadChunkToA(t);
     BeginTake(t, tickI);
+
+    // the old take stays stored until the first flush, on top of the slots this take fills until then. cut now if that could pass the budget
+    if (recOthers + trackFrames[t] + (REC_SLOTS + 1) * CHUNK_SIZE > MAX_TOTAL_SAMPLES)
+        FlushRecSlots();
+
     Number mids! = Floor(kept % CHUNK_SIZE / MID_SIZE) * MID_SIZE;
 
     // less than a mid goes through recBuf, so no level fills up here
@@ -140,6 +142,7 @@ void BeginPunch(Number t!, Number kept!) playervar "rec - begin punch"
         RecLevelsUp();
     }
     botChunkA = [];
+    botWinC = -2; // no window loaded
 }
 
 rule: "instant respawn"
@@ -229,11 +232,11 @@ playervar Number punchHealth!;
 playervar Boolean punchAir!; // the recording is in the air at that frame, the player is held at that spot until the recording actually starts, then let go at the recorded velocity
 playervar Vector punchVel!;
 playervar Boolean punchLocked!;
+playervar Boolean canRetake!;
 
-Boolean CanRetake(Player p = player): HasRecording(p) && p.currFrame > p.recStart && p.recStart + p.recFrames > p.trimStart && RetakeHeroMatches(p);
 Number TakeStart(Player p = player): p.punchFrame == WHOLE_TAKE ? p.recStart : p.punchFrame;
-Boolean RecordRetakes(Player p = player): CanRetake(p) && (!p.recordArmed || p.punchFrame != WHOLE_TAKE);
-Boolean RetakeHeroMatches(Player p = player): HeroOf(p) == p.trackHero[p.focusedTrack];
+Boolean RecordRetakes(Player p = player): p.canRetake && (!p.recordArmed || p.punchFrame != WHOLE_TAKE);
+Boolean RetakeHeroMatches(): HeroOf() == trackHero[focusedTrack];
 Boolean PunchInPlace(): DistanceBetween(Vector(PosOf().X, 0, PosOf().Z), Vector(punchPos.X, 0, punchPos.Z)) <= PUNCH_POS_RADIUS;
 Boolean PunchAimed():   DistanceBetween(EyePos() + Facing() * DistanceBetween(EyePos(), punchAim), punchAim) <= punchAimR;
 Boolean PunchLinedUp(): PunchInPlace() && PunchAimed();
@@ -243,16 +246,22 @@ Event.OngoingPlayer
 if (recordArmed)
 if (!timelineOpen)
 {
-    // a retake armed on a track recorded with another hero
-    if (punchFrame != WHOLE_TAKE && !RetakeHeroMatches())
+    // a retake WAS armed, so focus, playhead, or trim could have changed
+    if (punchFrame != WHOLE_TAKE)
     {
-        recordArmed = false;
-        SmallMessage(player, <"Track <0> needs <1>, change hero or replace the whole track", focusedTrack + 1, trackHero[focusedTrack]>);
-        return;
+        // from the track's start (or with no track) nothing would be kept, so it's a whole take
+        if (!HasRecording() || currFrame <= recStart)
+            punchFrame = WHOLE_TAKE;
+        // a whole take would replace the track the retake was meant to keep
+        else if (!RetakeHeroMatches() || recStart + recFrames <= trimStart)
+        {
+            recordArmed = false;
+            SmallMessage(player, RetakeHeroMatches()
+                ? <"Track <0> ends before the trim start, move it or replace the whole track", focusedTrack + 1>
+                : <"Track <0> needs <1>, change hero or replace the whole track", focusedTrack + 1, trackHero[focusedTrack]>);
+            return;
+        }
     }
-
-    if (!CanRetake())
-        punchFrame = WHOLE_TAKE;
 
     // take replaces the focused track, only other tracks count toward MAX_TOTAL_SAMPLES
     recOthers = 0;
@@ -377,10 +386,6 @@ if (!timelineOpen)
         }
         MinWait();
     }
-    recCount = 0;
-    preRolling = false;
-    punchLocked = false; // applied by StartRecording, or below
-
     if (guides)
     {
         DestroyEffect(posRing);
@@ -389,8 +394,16 @@ if (!timelineOpen)
         DestroyHudText(hint);
 
         if (punchAir)
+        {
             StopForcingPlayerPosition();
+
+            if (recordArmed && !timelineOpen)
+                MinWait();
+        }
     }
+    recCount = 0;
+    preRolling = false;
+    punchLocked = false; // applied by StartRecording or below
 
     // still armed with the timeline closed, so the countdown ran out
     if (recordArmed && !timelineOpen)
@@ -398,7 +411,6 @@ if (!timelineOpen)
         // lined up within the ring and sphere, so correct whatever error is there. a player that's held in the air is let go at the forward differenced velocity
         if (guides && punchAir)
         {
-            MinWait();
             SetFacing(player, punchDir, Relative.ToWorld);
             ApplyImpulse(player, punchVel, Mag(punchVel), Relative.ToWorld, ContraryMotion.Cancel);
         }

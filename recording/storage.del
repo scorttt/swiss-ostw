@@ -148,6 +148,26 @@ void AppendTrackStage(Number t!) playervar "rec - append track"
     }
 }
 
+// track t cut to its first recSlotKeep chunks, with recTake's chunks after them. one write, a write into a stored track is a load spike
+void CutAppendTrackStage(Number t!) playervar "rec - cut and append track"
+{
+    switch (t)
+    {
+        case 0:  trackChunks0 = trackChunks0.Slice(0, recSlotKeep) + recTake;   break;
+        case 1:  trackChunks1 = trackChunks1.Slice(0, recSlotKeep) + recTake;   break;
+        case 2:  trackChunks2 = trackChunks2.Slice(0, recSlotKeep) + recTake;   break;
+        case 3:  trackChunks3 = trackChunks3.Slice(0, recSlotKeep) + recTake;   break;
+        case 4:  trackChunks4 = trackChunks4.Slice(0, recSlotKeep) + recTake;   break;
+        case 5:  trackChunks5 = trackChunks5.Slice(0, recSlotKeep) + recTake;   break;
+        case 6:  trackChunks6 = trackChunks6.Slice(0, recSlotKeep) + recTake;   break;
+        case 7:  trackChunks7 = trackChunks7.Slice(0, recSlotKeep) + recTake;   break;
+        case 8:  trackChunks8 = trackChunks8.Slice(0, recSlotKeep) + recTake;   break;
+        case 9:  trackChunks9 = trackChunks9.Slice(0, recSlotKeep) + recTake;   break;
+        case 10: trackChunks10 = trackChunks10.Slice(0, recSlotKeep) + recTake; break;
+        case 11: trackChunks11 = trackChunks11.Slice(0, recSlotKeep) + recTake; break;
+    }
+}
+
 // sample track t into readPos, readLook and readCtrl
 void ReadTrackSample(Number t!, Number s!) playervar "rec - read Sample"
 {

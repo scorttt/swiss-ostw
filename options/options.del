@@ -123,6 +123,7 @@ void ApplyOptions() playervar "opt - apply options"
 globalvar Number[] SLIDER_MIN! = [0, 0, 1];
 Number[] SLIDER_MAX: [100, 500, 0];
 Number[] SLIDER_STEP: [1, 5, 1];
+String[] CYCLE_OFF_LABEL: ["Only play focused track in editor"]; // a cycle's label while it's off, by its OPT_ARG, array in case another cycle option is added
 
 Number SliderMax(Number k, Player p = local): k == Slider.Health ? MaxHealth(p) : SLIDER_MAX[k];
 
@@ -131,9 +132,8 @@ globalvar Number[] OPT_KIND;
 globalvar Number[] OPT_COL;
 globalvar Number[] OPT_PARENT;
 globalvar Number[] OPT_VAR;     // index into opts
-globalvar Number[] OPT_ARG;     // toggle or radio value, or slider index into SLIDER_
+globalvar Number[] OPT_ARG;     // toggle or radio value, slider index into SLIDER_, or cycle index into CYCLE_OFF_LABEL
 globalvar String[] OPT_LABEL;
-globalvar String[] OPT_LABEL_OFF!; // a cycle's label while it's off
 
 void OptionItem(Number | Item id!, Number | OptKind kind!, Number col!, Number | Item parent!, String label!, Number | Opt opt! = 0, Number | Persp | Slider arg! = 0) globalvar "opt - item"
 {
@@ -170,6 +170,4 @@ void InitOptionTables()
     OptionItem(Item.EndGame,            OptKind.Confirm, 2,   Item.None,                  "End game");
     OptionItem(Item.RecHealth,          OptKind.Toggle,  0,   Item.None,                  "Set recording health",                      Opt.RecHealth);
     OptionItem(Item.RecHealthValue,     OptKind.Slider,  0,   Item.RecHealth,             "Health",                                    Opt.RecHealthValue, Slider.Health);
-
-    OPT_LABEL_OFF = OPT_LABEL.Map((l, i) => i == Item.PlayAll ? "Only play focused track in editor" : "");
 }
