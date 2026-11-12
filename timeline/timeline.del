@@ -192,7 +192,7 @@ rule: "create timeline text"
                             : local.recordArmed && !RecordRetakes(local)
                             ? "Close to begin"
                             : local.recordArmed || local.recording
-                                ? <"<0> <1>", local.recordArmed ? "Close to retake from" : "Recording:", FormattedFrameToSec(local.recordArmed ? RetakeStart(local) : local.currFrame)>
+                                ? <"<0> <1>", local.recordArmed ? "Retake at" : "Recording:", FormattedFrameToSec(local.recordArmed ? RetakeStart(local) : local.currFrame)>
                                 : TimelineHasFrames(local)
                                     ? <"<0> / <1>", FormattedFrameToSec(local.currFrame), FormattedFrameToSec(local.timelineFrames)>
                                     : "Empty track",
