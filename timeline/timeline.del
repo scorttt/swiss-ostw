@@ -189,7 +189,7 @@ rule: "create timeline text"
         VisibleTo:      TimelineVisible() || local.playbackActive || local.recording || local.recCount ? local : null,
         Header:         local.recCount
                             ? <"Recording in <0>", local.recCount>
-                            : local.recordArmed && !RecordRetakes(local)
+                            : local.recordArmed && !ArmedRetake(local)
                             ? "Close to begin"
                             : local.recordArmed || local.recording
                                 ? <"<0> <1>", local.recordArmed ? "Retake at" : "Recording:", FormattedFrameToSec(local.recordArmed ? RetakeStart(local) : local.currFrame)>

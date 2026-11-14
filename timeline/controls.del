@@ -47,7 +47,7 @@ if (timelineOpen)
     ctrlEnabled = CtrlEnabledNow().Map((on, i) => on && (!recording || i == Ctrl.Record || i == Ctrl.AddFlag));
 
     // a playhead past the track's end retakes from its last frame
-    tickJ = HasRecording() && currFrame > recStart && recStart + recFrames > trimStart && RetakeHeroMatches();
+    tickJ = RetakeKeepsFrames() && RetakeInTrim() && RetakeHeroMatches();
     if (canRetake != tickJ)
         canRetake = tickJ;
 

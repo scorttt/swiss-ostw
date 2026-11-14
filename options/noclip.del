@@ -5,13 +5,15 @@ Number NOCLIP_BOOST:       400;
 Number NOCLIP_DRAG_MOVING: 0.03;
 Number NOCLIP_DRAG_IDLE:   0.06;
 
+Boolean MoveLocked(): timelineOpen || orbitCam || punchLocked;
+
 void ApplyMovementState() playervar "noclip - apply movement"
 {
     Boolean noclip! = OptOn(Opt.Noclip) && !firstPerson;
 
     if (!firstPerson)
         SetGravity(player, noclip ? 0 : 100);
-    SetMoveSpeed(player, noclip || timelineOpen || orbitCam || punchLocked || (firstPerson && !botDriven) ? 0 : 100);
+    SetMoveSpeed(player, noclip || MoveLocked() || (firstPerson && !botDriven) ? 0 : 100);
 
     if (noclip && OptOn(Opt.NoclipNoCollision))
     {
@@ -63,7 +65,7 @@ Event.OngoingPlayer
 if (OptOn(Opt.Noclip))
 if (!firstPerson)
 {
-    noclipDir = timelineOpen || orbitCam || punchLocked ? Vector(0, 0, 0)
+    noclipDir = MoveLocked() ? Vector(0, 0, 0)
         : Facing() * ThrottleOf().Z + WorldVectorOf(Left(), player, LocalVector.Rotation) * ThrottleX()
             + Up() * ((IsJumpHeld() ? 1 : 0) - (IsCrouchHeld() ? 1 : 0));
 

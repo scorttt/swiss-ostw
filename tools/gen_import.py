@@ -3,6 +3,7 @@ import io
 import math
 import os
 import re
+import struct
 import sys
 
 from gen_char_table import char_table
@@ -176,8 +177,80 @@ class Reader:
         return self.va[c][i] + (self.vb[c][i] - self.va[c][i]) * u
 
 
+# ---- plain: the decoded samples as plain Workshop arrays, laid out like Swiss stores them. for checking an export's contents
+# in an empty lobby, not for other modes to read ----
+PLAIN_CHUNK = 125           # samples per chunk, Swiss's CHUNK_SIZE
+PLAIN_RULE_CHARS = 90000    # a rule can't be pasted above ~98 KB
+
+
+def f32(x):
+    return struct.unpack("f", struct.pack("f", x))[0]
+
+
+# the shortest number text that reads back as the same float32, never in exponent form
+def plain_num(x):
+    x = f32(x)
+    if x == 0:
+        return "0"
+    for p in range(1, 10):
+        t = format(x, f".{p}g")
+        if f32(float(t)) == x:
+            break
+    if "e" in t:
+        t = format(float(t), ".12f").rstrip("0").rstrip(".")
+    return t
+
+
+def plain_vec(v):
+    return "Vector(" + ", ".join(plain_num(a) for a in v) + ")"
+
+
+# per track 3 channels of every frame, as import.del puts them into a Sample: Pos, Look (yaw, pitch, health), Ctrl (throttle x, buttons, throttle z).
+# chunk k of all tracks is plainPos[k] (also Look, Ctrl), track t's chunks start at its first chunk in plainTracks
+def write_plain(path, stamp, map_name, trim, tracks):
+    actions = []   # (text, frames) of every chunk's assignments
+    info = []
+    k = 0
+    for hdr, se, samples in tracks:
+        info.append([hdr[0], hdr[1], hdr[2], se[0], se[1], k])
+        for c in range(0, len(samples), PLAIN_CHUNK):
+            part = samples[c:c + PLAIN_CHUNK]
+            text = ""
+            for name, field in (("Pos", 0), ("Look", 1), ("Ctrl", 2)):
+                text += f"        Set Global Variable At Index(plain{name}, {k}, Array({', '.join(plain_vec(s[field]) for s in part)}));" + os.linesep
+            actions.append((text, len(part)))
+            k += 1
+
+    title = f"[PLAIN {stamp}] {len(tracks)} track{plural(len(tracks))}, {map_name}"
+    tracks_text = ", ".join("Array(" + ", ".join(str(v) for v in i) + ")" for i in info)
+    head = [f"        Global.plainTracks = Array({tracks_text});" + os.linesep,
+            f"        Global.plainTrim = Array({trim[0]}, {trim[1]});" + os.linesep]
+    rules = [[head, 0]]
+    for text, n in actions:
+        if sum(len(t) for t in rules[-1][0]) + len(text) > PLAIN_RULE_CHARS:
+            rules.append([[], 0])
+        rules[-1][0].append(text)
+        rules[-1][1] += n
+    # the paste names its global variables 0 and up
+    names = ["plain" + n for n in ("Tracks", "Trim", "Pos", "Look", "Ctrl")]
+    out = ["variables" + os.linesep + "{" + os.linesep + "    global:" + os.linesep
+           + "".join(f"        {i}: {n}" + os.linesep for i, n in enumerate(names)) + "}" + os.linesep]
+    for e, (body, _) in enumerate(rules):
+        name = title if e == 0 else f"[PLAIN {stamp}] part {e + 1}"
+        out.append(f'rule("{name}")' + os.linesep + "{" + os.linesep + "    event { Ongoing - Global; }" + os.linesep
+                   + "    actions" + os.linesep + "    {" + os.linesep + "".join(body) + "    }" + os.linesep + "}" + os.linesep)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(os.linesep.join(out))
+
+    # a number is 1 element, a vector 4, an array 1, an action ~3 plus its values, a rule ~20. untested in game
+    frames = sum(len(s) for _, _, s in tracks)
+    est = frames * 12 + len(actions) * 3 * 4 + len(info) * 7 + 10 + len(rules) * 20
+    print(f"plain arrays written to {path}: {frames} frames in {k} chunks, {len(rules)} rule{plural(len(rules))}, ~{est:,} elements"
+          f" (the element cap is 32,768). Global variables 0 to {len(names) - 1}: {', '.join(names)}")
+
+
 # ---- read: decode an export alone, one line of stats per track ----
-def read_export(path, dump):
+def read_export(path, dump, plain=""):
     txt = read_text(path)
     stamp = first(r"\[IMPORT (\d+)\]", txt)
     map_name = first(r'importMap = Custom String\("([^"]*)"\)', txt)
@@ -187,9 +260,11 @@ def read_export(path, dump):
     dcount = h[1]
     print(f"[IMPORT {stamp}] {map_name}, {dcount} track{plural(dcount)}, focused track {h[0] + 1}, trim {trim[0]} to {trim[1]}, {len(ent)} rule{plural(len(ent))}")
     rows = ["track,frame,buttons,x,y,z,yaw,pitch,health,throttle x,throttle z"] if dump else []
+    plain_tracks = []
     for k in range(dcount):
         hdr, se, fc = r.begin_track(k, directory)
         n = se[1]
+        samples = []
         changes = primary = jumps = ground = deaths = 0
         move = 0.0; move_max = 0.0
         last_b = -1; px = 0.0; pz = 0.0
@@ -219,6 +294,9 @@ def read_export(path, dump):
             last_b = b; px = x; pz = z
             if dump:
                 rows.append(",".join(csv_num(v) for v in (k + 1, s, b, x, y, z, yaw, pitch, r.hp_a, r.va[2][0], r.va[2][2])))
+            if plain:
+                samples.append(((x, y, z), (yaw, pitch, r.hp_a), (r.va[2][0], b, r.va[2][2])))
+        plain_tracks.append((hdr, se, samples))
         r.cur[3] = r.cur[2]
         secs = n / 62.5
         print(f"track {hdr[0] + 1}: hero #{hdr[1]}, {'enemy' if hdr[2] == 1 else 'ally'}, frames {se[0]} to {se[0] + n} ({secs:,.2f} s), {fc} flag{plural(fc)}"
@@ -227,6 +305,8 @@ def read_export(path, dump):
     if dump:
         write_rows(dump, rows)
         print(f"frames written to {dump}")
+    if plain:
+        write_plain(plain, stamp, map_name, trim, plain_tracks)
 
 
 # ---- source: old per-frame format ----
@@ -503,10 +583,11 @@ def main():
     parser.add_argument("--dump", default="", help="csv of every decoded frame next to the source: track, frame, buttons, x y z, source x y z (with --read: every decoded value)")
     parser.add_argument("--generations", type=int, default=1)
     parser.add_argument("--check", default="", help="decode this export (e.g. one made in game) against the source instead of the one written")
+    parser.add_argument("--plain", default="", help="with --read: also write the decoded frames as plain Workshop arrays to this file, to check an export in an empty lobby")
     args = parser.parse_args()
 
     if args.read:
-        read_export(args.read, args.dump)
+        read_export(args.read, args.dump, args.plain)
         return
     if not args.source or not args.out:
         parser.error("give --source and --out to write an export, or --read to decode one")

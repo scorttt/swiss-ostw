@@ -58,6 +58,7 @@ void FlushRecSlots() playervar "rec - flush slots"
     // a retake's first flush also cuts the old take after the chunks it keeps
     if (recSlotKeep > 0)
     {
+        tickI = recSlotKeep; // a plain variable since every case reads it once per Sample
         CutAppendTrackStage(recSlotTrack);
         recSlotKeep = 0;
     }
@@ -128,7 +129,8 @@ void BeginPunch(Number t!, Number kept!) playervar "rec - begin punch"
     ReadChunkToA(t);
     BeginTake(t, tickI);
 
-    // the old take stays stored until the first flush, on top of the slots this take fills until then. cut now if that could pass the budget
+    // the old take stays stored until the first flush, on top of the slots this take fills until then. cut if it would pass the budget
+    // trackFrames[t] is still the old take's length here, StartRecording sets it after
     if (recOthers + trackFrames[t] + (REC_SLOTS + 1) * CHUNK_SIZE > MAX_TOTAL_SAMPLES)
         FlushRecSlots();
 
@@ -235,11 +237,13 @@ playervar Boolean punchLocked!;
 playervar Boolean canRetake!;
 
 Number TakeStart(Player p = player): p.punchFrame == WHOLE_TAKE ? p.recStart : p.punchFrame;
-Boolean RecordRetakes(Player p = player): p.canRetake && (!p.recordArmed || p.punchFrame != WHOLE_TAKE);
-Number RetakeStart(Player p = player): Min(p.currFrame, p.recStart + p.recFrames - 1);
+Boolean ArmedRetake(Player p = player): p.canRetake && p.punchFrame != WHOLE_TAKE; // the armed take is a retake, only used while recordArmed
+Number RetakeStart(Player p = player): Min(p.currFrame, p.recStart + p.recFrames - 1);  // "cursor hover" keeps this for the Record button, "record countdown" checks again when the timeline is closed
+Boolean RetakeKeepsFrames(): HasRecording() && currFrame > recStart; // from the track's start (or with no track) nothing would be kept
 Boolean RetakeHeroMatches(): HeroOf() == trackHero[focusedTrack];
+Boolean RetakeInTrim(): recStart + recFrames > trimStart; // a track that ends before the trim start would be retaken outside the trim
 Boolean PunchInPlace(): DistanceBetween(Vector(PosOf().X, 0, PosOf().Z), Vector(punchPos.X, 0, punchPos.Z)) <= PUNCH_POS_RADIUS;
-Boolean PunchAimed():   DistanceBetween(EyePos() + Facing() * DistanceBetween(EyePos(), punchAim), punchAim) <= punchAimR;
+Boolean PunchAimed(): DistanceBetween(EyePos() + Facing() * DistanceBetween(EyePos(), punchAim), punchAim) <= punchAimR;
 Boolean PunchLinedUp(): PunchInPlace() && PunchAimed();
 
 rule: "record countdown"
@@ -250,16 +254,20 @@ if (!timelineOpen)
     // a retake WAS armed, so focus, playhead, or trim could have changed
     if (punchFrame != WHOLE_TAKE)
     {
-        // from the track's start (or with no track) nothing would be kept, so it's a whole take
-        if (!HasRecording() || currFrame <= recStart)
+        // whole take since nothing would be kept
+        if (!RetakeKeepsFrames())
             punchFrame = WHOLE_TAKE;
         // a whole take would replace the track the retake was meant to keep
-        else if (!RetakeHeroMatches() || recStart + recFrames <= trimStart)
+        else if (!RetakeHeroMatches())
         {
             recordArmed = false;
-            SmallMessage(player, RetakeHeroMatches()
-                ? <"Track <0> ends before the trim start, move it or replace the whole track", focusedTrack + 1>
-                : <"Track <0> needs <1>, change hero or replace the whole track", focusedTrack + 1, trackHero[focusedTrack]>);
+            SmallMessage(player, <"Track <0> needs <1>, change hero or replace the whole track", focusedTrack + 1, trackHero[focusedTrack]>);
+            return;
+        }
+        else if (!RetakeInTrim())
+        {
+            recordArmed = false;
+            SmallMessage(player, <"Track <0> ends before the trim start, move it or replace the whole track", focusedTrack + 1>);
             return;
         }
     }
@@ -320,7 +328,7 @@ if (!timelineOpen)
             StartForcingPlayerPosition(player, punchPos, false); // for some reason this makes the player's aim feel floaty - dont care!
         }
 
-        // the frame a retake starts at, a playhead past the track's end is moved to its last frame
+        // a playhead past the track's end is moved to its last frame
         if (currFrame >= recStart + recFrames)
             SmallMessage(player, <"Retaking from the end of track <0> (<1>)", focusedTrack + 1, FormattedFrameToSec(target)>);
 
@@ -348,7 +356,7 @@ if (!timelineOpen)
             Spectators:     Spectators.VisibleNever);
         hint = LastTextID();
     }
-    // retakes start from the same spot, before the countdown so it's spent there. reads the old samples, take clears them
+    // replacing a track starts from the same spot, before the countdown so it's spent there. reads the old samples, take clears them
     else if (OptOn(Opt.TeleportOnRecord) && HasRecording())
     {
         ReadTrackSample(focusedTrack, 0);

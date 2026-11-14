@@ -87,7 +87,7 @@ void UIButton(Number | Ctrl id!, Number x!, Number y!, Number hitSize!, String l
     if (label != "")
         CreateInWorldText(
             VisibleTo:      TimelineVisible() ? local : null,
-            Header:         Once(id) == Ctrl.Record && !local.recording && RecordRetakes(local)
+            Header:         Once(id) == Ctrl.Record && !local.recording && local.canRetake && (!local.recordArmed || local.punchFrame != WHOLE_TAKE)
                                 ? "◐"
                                 : Once(label),
             Position:       CtrlPos(Once(id)),
@@ -147,7 +147,7 @@ rule: "create button texts"
                              : local.recording
                                  ? <"Stop Recording [Hold <0> + <1> x2]", BindString(Button.Reload), BindString(Button.Interact)>
                                  : local.recordArmed
-                                     ? local.punchFrame != WHOLE_TAKE && local.canRetake ? "Cancel Retake, click again to replace track" : "Cancel Recording"
+                                     ? ArmedRetake(local) ? "Cancel Retake, click again to replace track" : "Cancel Recording"
                                      : local.canRetake
                                          ? local.currFrame < local.recStart + local.recFrames ? "Retake from playhead" : "Retake from end of track"
                                          : <"<0> [Hold <1> + <2> x2]", HasRecording(local) ? "Replace Track" : "Start Recording", BindString(Button.Reload), BindString(Button.Interact)>,
@@ -317,7 +317,7 @@ void ActivateCtrl(Number | Ctrl ctrl!) playervar "tl - selection handler"
             // where a retake is possible (canRetake): the first click arms a retake from the playhead, the second the whole track, the third cancels. anywhere else the first click arms a whole take
             if (recordArmed)
             {
-                if (RecordRetakes())
+                if (ArmedRetake())
                     punchFrame = WHOLE_TAKE;
                 else
                     recordArmed = false;
