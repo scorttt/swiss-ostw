@@ -19,7 +19,6 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
         - Change Hero
     - Trimming (drag the handles)
     - Scrubbing (drag the seeker), handles and seeker snap to flags and track ends
-    - (Planned) Timeline events (deaths, kills, ults, etc)
     - Teleport to the focused track (Go To Track) or cycle teleport between each objective (Go to Objective)
     - Up to 12 tracks, switched with the track buttons or the Track menu
         - Each track in the menu has a Hide/Show button, team toggle, and a delete button
@@ -27,21 +26,14 @@ An Overwatch workshop mode built on [OSTW](https://github.com/ItsDeltin/Overwatc
         - The Team button sets the focused track's bot to ally or enemy
 - **Recording**, with chunking to keep server and client performance at bay
     - Bot playback of player actions, with synchronous playback
-    - (Planned) Camera pathing with curve options
-        - Each path type has its pros and cons, and can be changed at any time
-            - Cubic B-spline
-            - Catmull-Rom
-            - Linear
 - **Export recordings to the inspector to be imported at a later date.** Export/imports have a compression process utilizing [swinging door compression](https://github.com/emrumo/swingingdoor), where only changes are kept, which is far less space compared to saving each frame.
 
 - **Options**
-    - (Planned) Timescale adjustment
     - Perspective
         - Detached
         - Orbit (the mouse swings the camera around the focused track's bot, Q / E zoom)
         - First Person (take perspective of the bot's recorded actions)
             - Opening the timeline pauses it, Jump/Crouch or Stop detaches you and puts you back where you were
-        - (Planned) Camera Track
     - Play all tracks simultaneously in editor
         - When off, only the focused track plays and the other tracks stay in place
     - Play all tracks while recording
@@ -94,7 +86,6 @@ Newer versions of Overdub use a smaller export format, but still import older ex
 - Menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and ingame language is not set to Traditional/Simplified Chinese, Japanese, Korean, Thai, or Russian.
 - Overdub is designed to be used by only one human player in a lobby, not with multiple human players, results will vary with more than one human player.
 - Overdub cannot be used in other custom gamemodes.
-- Camera pathing (planned) won't play back when viewing an Overwatch replay of an Overdub game, you will need to find a different solution; there are Autohotkey scripts available to get similar results within the viewer.
 - It is not possible for bots to use skins. For this reason, skins are disabled for consistency and to allow for more bots to be spawned.
 - Overdub keybinds were set with the intention that the default keybinds are used, such as the keys for movement (WASD), interact (F), melee (V), reload (R), primary/secondary fire (LMB/RMB), ability buttons (LShift, E), crouch (LCtrl), and ultimate (Q). It's not possible for keybinds to be set to an individual key or be setting agnostic.
 - Instant ult and 0% cooldown is enabled to get around hero inconsistencies in workshop (see https://workshop.codes/wiki/articles/ow2-workshop-changesbugs). Certain abilities like Tracer recall will always have a cooldown regardless of setting or workshop workaround.
