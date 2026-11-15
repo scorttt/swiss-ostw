@@ -14,6 +14,11 @@ HEALTH_FLAG = 32768
 POS_STEP = 0.001; ANG_STEP = 0.01
 POS_STEP_Y = 1 / 4096; GROUND_TOL = 0.0002     # height steps on the absolute grid, tight position on frames on the ground
 DELTA_LIM = 2000; KEY_GAP_MAX = 2047; OPEN = 100000.0
+# a curve key's first char: below SHORT_KEYS a short key, below ABS_KEYS a delta key, then an absolute key. those two hold
+# the gap in the first char, up to CURVE_GAP_MAX. short keys, deltas in steps:
+#   position, gap up to 8, x and z -512 to 511: (gap - 1) * 256 + (z + 512) // 4, (z + 512) % 4 * 1024 + x + 512, height + 2048
+#   facing, gap up to 2, pitch -512 to 511: (gap - 1) * 1024 + pitch + 512, yaw + 2048
+SHORT_KEYS = 2048; ABS_KEYS = 3072; CURVE_GAP_MAX = 1023
 ENC_MAX = 4096 * 4096 - 1
 FIELDS = ("x", "y", "z", "yaw", "pitch", "hp", "b", "tx", "tz")
 
@@ -117,9 +122,20 @@ class Reader:
 
     def key(self, c):
         g = self.at(c, 1, 1)[0]
-        absolute = g >= 2048
-        self.fb[c] = self.fa[c] + g % 2048
         va = self.va[c]
+        if c == 0 and g < SHORT_KEYS:
+            r = self.at(0, 2, 1)
+            self.fb[0] = self.fa[0] + g // 256 + 1
+            d = (r[0] % 1024 - 512, r[1] - 2048, g % 256 * 4 + r[0] // 1024 - 512)
+            self.vb[0] = [va[i] + d[i] * (POS_STEP, POS_STEP_Y, POS_STEP)[i] for i in range(3)]
+            return
+        if c == 1 and g < SHORT_KEYS:
+            r = self.at(1, 1, 1)
+            self.fb[1] = self.fa[1] + g // 1024 + 1
+            self.vb[1] = [va[0] + (r[0] - 2048) * ANG_STEP, va[1] + (g % 1024 - 512) * ANG_STEP, 0.0]
+            return
+        absolute = c < 2 and g >= ABS_KEYS
+        self.fb[c] = self.fa[c] + (g if c == 2 else (g - SHORT_KEYS) % 1024)
         if c == 0:
             v = self.at(0, 3, 2 if absolute else 1)
             if absolute:
@@ -177,9 +193,9 @@ class Reader:
         return self.va[c][i] + (self.vb[c][i] - self.va[c][i]) * u
 
 
-# ---- plain: the decoded samples as plain Workshop arrays, laid out like Swiss stores them. for checking an export's contents
+# ---- plain: the decoded samples as plain Workshop arrays, laid out like Overdub stores them. for checking an export's contents
 # in an empty lobby, not for other modes to read ----
-PLAIN_CHUNK = 125           # samples per chunk, Swiss's CHUNK_SIZE
+PLAIN_CHUNK = 125           # samples per chunk, Overdub's CHUNK_SIZE
 PLAIN_RULE_CHARS = 90000    # a rule can't be pasted above ~98 KB
 
 
@@ -406,16 +422,27 @@ class Encoder:
         def key(f, v):
             nonlocal kf, kv
             st = [near(x) for x in in_steps(v)]
+            gap = f - max(kf, 0)
             absolute = kf < 0 or max_abs(st) > 2047
-            self.put([f - max(kf, 0) + (2048 if absolute else 0)], 1)
-            if not absolute:
+            if gap > CURVE_GAP_MAX:
+                raise ValueError(f"gap {gap} over {CURVE_GAP_MAX}")
+            if not absolute and c == 0 and gap <= 8 and abs(st[0] + 0.5) < 512 and abs(st[2] + 0.5) < 512:
+                self.put([(gap - 1) * 256 + (st[2] + 512) // 4, (st[2] + 512) % 4 * 1024 + st[0] + 512, st[1] + 2048], 1)
+                kv = [kv[i] + st[i] * q[i] for i in range(3)]
+            elif not absolute and c == 1 and gap <= 2 and abs(st[1] + 0.5) < 512:
+                self.put([(gap - 1) * 1024 + st[1] + 512, st[0] + 2048], 1)
+                kv = [kv[i] + st[i] * q[i] for i in range(3)]
+            elif not absolute:
+                self.put([gap + SHORT_KEYS], 1)
                 self.put([x + 2048 for x in st[:3 - c]], 1)
                 kv = [kv[i] + st[i] * q[i] for i in range(3)]
             elif c == 0:
+                self.put([gap + ABS_KEYS], 1)
                 a = [quant(v[0]), quant(v[1]), quant(v[2])]
                 self.put(a, 2)
                 kv = [x / 4096 - 2048 for x in a]
             else:
+                self.put([gap + ABS_KEYS], 1)
                 a = [near((wrap(v[0]) + 180) / 360 * ENC_MAX), near((v[1] + 90) / 180 * ENC_MAX)]
                 self.put(a, 2)
                 kv = [kv[0] + wrap(a[0] / ENC_MAX * 360 - 180 - kv[0]), a[1] / ENC_MAX * 180 - 90, 0.0]
@@ -427,7 +454,7 @@ class Encoder:
             v = read(s)
             tol = tol_at(s)
             d = s - kf
-            cut = max_abs(in_steps(v)) > DELTA_LIM or d > KEY_GAP_MAX
+            cut = max_abs(in_steps(v)) > DELTA_LIM or d > CURVE_GAP_MAX
             nlo = [max(lo[i], (v[i] - tol[i] - kv[i]) / d) for i in range(3)]
             nhi = [min(hi[i], (v[i] + tol[i] - kv[i]) / d) for i in range(3)]
             if cut or nlo[0] > nhi[0] or nlo[1] > nhi[1] or nlo[2] > nhi[2]:
@@ -569,7 +596,7 @@ def check(path, orig, dump):
 def main():
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="Builds Swiss imports in the keyframe export format, or reads one")
+    parser = argparse.ArgumentParser(description="Builds Overdub imports in the keyframe export format, or reads one")
     parser.add_argument("--source", default="")
     parser.add_argument("--out", default="")
     parser.add_argument("--read", default="", help="decode this export alone and print its tracks, no --source or --out needed")

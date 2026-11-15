@@ -20,36 +20,25 @@ import "../main.del";
 // written in groups of the same width (ExpPut / ImpAt), stream:
 //   focused trackCount (1 char each), trimStart trimEnd (2), then per track:
 //   track hero team (1), start frames (2), flagCount (1), flags (2), then the tracks 3 channels one after another:
-//   position and facing: curves within POS_TOL / ANG_TOL, interpolated linearly between keys on import. a key is a gap
-//     char (frames since the last key, +2048 when absolute values follow), then 1 char per axis (delta from the last
-//     key in POS_STEP / POS_STEP_Y / ANG_STEP steps, +2048) or 2 chars per axis absolute (first key, teleports, flicks).
+//   position and facing: curves within POS_TOL / ANG_TOL, interpolated linearly between keys on import. a key holds the
+//     frames since the last key (its gap) and its value as deltas from the last key in POS_STEP / POS_STEP_Y / ANG_STEP
+//     steps, or as absolute values. its first char tells which of 3 kinds it is:
+//       below SHORT_KEYS, short: a key whose gap and deltas fit, most of them. the gap is in the first char
+//         position, gap up to 8, x and z -512 to 511: (gap - 1) * 256 + (z + 512) / 4, (z + 512) % 4 * 1024 + x + 512,
+//           height + 2048
+//         facing, gap up to 2, pitch -512 to 511: (gap - 1) * 1024 + pitch + 512, yaw + 2048
+//       below ABS_KEYS, delta: SHORT_KEYS + the gap, then 1 char per axis (+2048)
+//       absolute: ABS_KEYS + the gap, then 2 chars per axis (first key, teleports, flicks)
 //     position on frames recorded on the ground stays within GROUND_TOL / GROUND_TOL_XZ: a bot forced a few mm above
 //     or into the floor (or a slope) flickers between airborne and grounded
 //   steps: a key whenever buttons, throttle or health change. gap (1), buttons (2, +HEALTH_FLAG when health follows),
 //     [health * 1024 (2)], throttle x z (1)
-//   every channel has a key on frame 0 and on the last frame, gaps stay under 2048
+//   every channel has a key on frame 0 and on the last frame. gaps stay under 1024 in the curves, under 2048 in the steps
 // then a directory: facing and steps start (2 chars each) of every track, so the import reads the 3 channels at once
 // positions cover the fixed world range -2048 to 2048 in 1/4096 m steps (0.24 mm), maps fit well inside it
 
-// channels of a track, and the cursors the import reads them with (impCur)
-enum Chan
-{
-    Pos,
-    Look,
-    Steps,
-    Header
-}
-
-globalvar String charTable;      // 4096 visible symbol/punctuation chars. plain, too large to sit in the ! values that are written often
-globalvar Number encMax!;        // 4096^2 - 1, built at runtime since big literals get clamped
-
-Number IMPORT_ARRAY:    15;     // trees per importData entry and per pasted rule, a rule cant be pasted above ~98 KB (15 is ~76 KB)
-Number TREE_CHARS:      1628;   // chars per tree, 4 outer strings of 119 and 9 inner of 128
-Number TREE_STRINGS:    13;
-Number ENTRY_CHARS:     24420;  // IMPORT_ARRAY * TREE_CHARS, every entry but the last is full
 Number EXPORT_PER_TICK: 8;
 Number EXPORT_MAX_LOAD: 225;    // server load % the export waits under
-Number HEALTH_FLAG:     32768;  // buttons bit: health follows, only export when it changes
 
 Number POS_TOL:   0.0057;       // m per axis, ~1 cm overall
 Number POS_STEP:  0.001;        // m per delta step
@@ -59,7 +48,6 @@ Number GROUND_TOL_XZ: 0.001;    // m, horizontal on frames recorded on the groun
 Number ANG_TOL:   0.01;         // degrees, aim kept as close as the delta steps allow
 Number ANG_STEP:  0.01;
 Number DELTA_LIM: 2000;         // steps a key may be from the last one before the curve is cut, 1 char holds -2048 to 2047
-Number KEY_GAP_MAX: 2047;
 Number OPEN:      100000;       // slope bounds of an empty door
 
 Number WORLD_HALF: 2048;
@@ -71,132 +59,11 @@ Number MaxAbs(Vector v): Max(Abs(v.X), Max(Abs(v.Y), Abs(v.Z)));
 Vector DecodePos(Vector a): a / 4096 - Vector(WORLD_HALF, WORLD_HALF, WORLD_HALF);
 Vector DecodeLook(Number prevYaw, Number yaw, Number pitch): Vector(prevYaw + Wrap(yaw / encMax * 360 - 180 - prevYaw), pitch / encMax * 180 - 90, 0);
 
-void InitCharTable()
-{
-    charTable = "!#$%&'()*+,-./:;=?@[]^_`|~¡¢£¤¥¦§¨©«¬®¯°±´¶·¸»¿×÷˂˃˄˅˒˓˔˕˖˗˘˙˚˛˜˝˞˟˥˦˧˨˩˪˫˭˯˰˱˲˳˴˵˶˷˸˹˺˻˼˽˾˿͵΄϶҂՚՛՜՝՞՟։֊֍֎֏־׀׃׆׳״؆؇؈؉؊؋،؍؎؏؛؝؞؟٪" +
-        "٫٬٭۔۞۩۽۾܀܁܂܃܄܅܆܇܈܉܊܋܌܍߶߷߸߹߾߿࠰࠱࠲࠳࠴࠵࠶࠷࠸࠹࠺࠻࠼࠽࠾࡞࢈।॥॰৲৳৺৻৽੶૰૱୰௳௴௵௶௷௸௹௺౷౿಄൏൹෴฿๏๚๛༁༂༃༄༅༆༇༈༉༊་༌།༎༏༐༑༒༓༔༕༖༗༚༛༜༝༞༟༴༶༸༺༻༼༽྅྾྿࿀࿁࿂࿃࿄࿅࿇࿈࿉࿊࿋࿌࿎࿏" +
-        "࿐࿑࿒࿓࿔࿕࿖࿗࿘࿙࿚၊။၌၍၎၏႞႟჻፠፡።፣፤፥፦፧፨᎐᎑᎒᎓᎔᎕᎖᎗᎘᎙᐀᙭᙮᚛᚜᛫᛬᛭᜵᜶។៕៖៘៙៚៛᠀᠁᠂᠃᠄᠅᠆᠇᠈᠉᠊᥀᥄᥅᧞᧟᧠᧡᧢᧣᧤᧥᧦᧧᧨᧩᧪᧫᧬᧭᧮᧯᧰᧱᧲᧳᧴᧵᧶᧷᧸᧹᧺᧻᧼᧽᧾᧿᨞᨟᪠᪡᪢᪣᪤᪥᪦᪨᪩᪪᪫᪬᪭᭚᭛᭜᭝᭞᭟᭠᭡᭢" +
-        "᭣᭤᭥᭦᭧᭨᭩᭪᭴᭵᭶᭷᭸᭹᭺᭻᭼᭽᭾᯼᯽᯾᯿᰻᰼᰽᰾᰿᱾᱿᳀᳁᳂᳃᳄᳅᳆᳇᳓᾽᾿῀῾‐‑‒–—―‖‗‘’‚‛“”„‟†‡•‣․‥…‧‰‱′″‴‵‶‷‸‹›※‼‽‾‿⁀⁁⁂⁃⁄⁅⁆⁇⁈⁉⁊⁋⁌⁍⁎⁏⁐⁑⁒⁓⁔⁕⁖⁗⁘⁙⁚⁛⁜⁝⁞⁺⁻⁼⁽⁾₊₋₌₍₎₠₡₢₣" +
-        "₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀℀℁℃℄℅℆℈℉℔№℗℘℞℟℠℡™℣℥℧℩℮℺℻⅀⅁⅂⅃⅄⅊⅋⅌⅍⅏↊↋←↑→↓↔↕↖↗↘↙↜↝↞↟↠↡↢↣↤↥↦↧↨↩↪↫↬↭↯↰↱↲↳↴↵↶↷↸↹↺↻↼↽↾↿⇀⇁⇂⇃⇄⇅⇆⇇⇈⇉⇊⇋⇌⇐⇑⇒⇓⇔" +
-        "⇕⇖⇗⇘⇙⇚⇛⇜⇝⇞⇟⇠⇡⇢⇣⇤⇥⇦⇧⇨⇩⇪⇫⇬⇭⇮⇯⇰⇱⇲⇳⇴⇵⇶⇷⇸⇹⇺⇻⇼⇽⇾⇿∀∁∂∃∅∆∇∈∊∋∍∎∏∐∑−∓∔∕∖∗∘∙√∛∜∝∞∟∠∡∢∣∥∧∨∩∪∫∬∭∮∯∰∱∲∳∴∵∶∷∸∹∺∻∼∽∾∿≀≂≃≅≆≈≊≋≌≍≎≏≐≑≒≓≔≕≖≗≘≙≚≛≜≝" +
-        "≞≟≡≣≤≥≦≧≨≩≪≫≬≲≳≶≷≺≻≼≽≾≿⊂⊃⊆⊇⊊⊋⊌⊍⊎⊏⊐⊑⊒⊓⊔⊕⊖⊗⊘⊙⊚⊛⊜⊝⊞⊟⊠⊡⊢⊣⊤⊥⊦⊧⊨⊩⊪⊫⊰⊱⊲⊳⊴⊵⊶⊷⊸⊹⊺⊻⊼⊽⊾⊿⋀⋁⋂⋃⋄⋅⋆⋇⋈⋉⋊⋋⋌⋍⋎⋏⋐⋑⋒⋓⋔⋕⋖⋗⋘⋙⋚⋛⋜⋝⋞⋟⋤⋥⋦⋧⋨⋩⋮⋯⋰⋱⋲⋳⋴⋵⋶⋷⋸⋹⋺" +
-        "⋻⋼⋽⋾⋿⌀⌁⌂⌃⌄⌅⌆⌇⌈⌉⌊⌋⌌⌍⌎⌏⌐⌑⌒⌓⌔⌕⌖⌗⌘⌙⌚⌛⌜⌝⌞⌟⌠⌡⌢⌣⌤⌥⌦⌧⌨⌫⌬⌭⌮⌯⌰⌱⌲⌳⌴⌵⌶⌷⌸⌹⌺⌻⌼⌽⌾⌿⍀⍁⍂⍃⍄⍅⍆⍇⍈⍉⍊⍋⍌⍍⍎⍏⍐⍑⍒⍓⍔⍕⍖⍗⍘⍙⍚⍛⍜⍝⍞⍟⍠⍡⍢⍣⍤⍥⍦⍧⍨⍩⍪⍫⍬⍭⍮⍯⍰⍱⍲⍳⍴⍵⍶⍷⍸⍹⍺⍻⍼" +
-        "⍽⍾⍿⎀⎁⎂⎃⎄⎅⎆⎇⎈⎉⎊⎋⎌⎍⎎⎏⎐⎑⎒⎓⎔⎕⎖⎗⎘⎙⎚⎛⎜⎝⎞⎟⎠⎡⎢⎣⎤⎥⎦⎧⎨⎩⎪⎫⎬⎭⎮⎯⎰⎱⎲⎳⎴⎵⎶⎷⎸⎹⎺⎻⎼⎽⎾⎿⏀⏁⏂⏃⏄⏅⏆⏇⏈⏉⏊⏋⏌⏍⏎⏏⏐⏑⏒⏓⏔⏕⏖⏗⏘⏙⏚⏛⏜⏝⏞⏟⏠⏡⏢⏣⏤⏥⏦⏧⏨⏩⏪⏫⏬⏭⏮⏯⏰⏱⏲⏳⏴⏵⏶⏷⏸⏹⏺⏻⏼" +
-        "⏽⏾⏿␀␁␂␃␄␅␆␇␈␉␊␋␌␍␎␏␐␑␒␓␔␕␖␗␘␙␚␛␜␝␞␟␠␡␢␣␤␥␦⑀⑁⑂⑃⑄⑅⑆⑇⑈⑉⑊⒜⒝⒞⒟⒠⒡⒢⒣⒤⒥⒦⒧⒨⒩⒪⒫⒬⒭⒮⒯⒰⒱⒲⒳⒴⒵ⒶⒷⒸⒹⒺⒻⒼⒽⒾⒿⓀⓁⓂⓃⓄⓅⓆⓇⓈⓉⓊⓋⓌⓍⓎⓏⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦ" +
-        "ⓧⓨⓩ─━│┃┄┅┆┇┈┉┊┋┌┍┎┏┐┑┒┓└┕┖┗┘┙┚┛├┝┞┟┠┡┢┣┤┥┦┧┨┩┪┫┬┭┮┯┰┱┲┳┴┵┶┷┸┹┺┻┼┽┾┿╀╁╂╃╄╅╆╇╈╉╊╋╌╍╎╏═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬╭╮╯╰╱╲╳╴╵╶╷╸╹╺╻╼" +
-        "╽╾╿▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▐░▒▓▔▕▖▗▘▙▚▛▜▝▞▟■□▢▣▤▥▦▧▨▩▪▫▬▭▮▯▰▱▲△▴▵▶▷▸▹►▻▼▽▾▿◀◁◂◃◄◅◆◇◈◉◊○◌◍◎●◐◑◒◓◔◕◖◗◘◙◚◛◜◝◞◟◠◡◢◣◤◥◦◧◨◩◪◫◬◭◮◯◰◱◲◳◴◵◶◷◸◹◺◻◼" +
-        "◽◾◿☀☁☂☃☄★☆☇☈☉☊☋☌☍☎☏☐☑☒☓☔☕☖☗☘☙☚☛☜☝☞☟☠☡☢☣☤☥☦☧☨☩☪☫☬☭☮☯☰☱☲☳☴☵☶☷☸☹☺☻☼☽☾☿♀♁♂♃♄♅♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼" +
-        "♽♾♿⚀⚁⚂⚃⚄⚅⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟⚠⚡⚢⚣⚤⚥⚦⚧⚨⚩⚪⚫⚬⚭⚮⚯⚰⚱⚲⚳⚴⚵⚶⚷⚸⚹⚺⚻⚼⚽⚾⚿⛀⛁⛂⛃⛄⛅⛆⛇⛈⛉⛊⛋⛌⛍⛎⛏⛐⛑⛒⛓⛔⛕⛖⛗⛘⛙⛚⛛⛜⛝⛞⛟⛠⛡⛢⛣⛤⛥⛦⛧⛨⛩⛪⛫⛬⛭⛮⛯⛰⛱⛲⛳⛴⛵⛶⛷⛸⛹⛺⛻⛼" +
-        "⛽⛾⛿✀✁✂✃✄✅✆✇✈✉✊✋✌✍✎✏✐✑✒✓✔✕✖✗✘✙✚✛✜✝✞✟✠✡✢✣✤✥✦✧✨✩✪✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❄❅❆❇❈❉❊❋❌❍❎❏❐❑❒❓❔❕❖❗❘❙❚❛❜❝❞❟❠❡❢❣❤❥❦❧❨❩❪❫❬❭❮❯❰❱❲❳❴❵➔➕➖➗➘➙➚" +
-        "➛➜➝➞➟➠➡➢➣➤➥➦➧➨➩➪➫➬➭➮➯➰➱➲➳➴➵➶➷➸➹➺➻➼➽➾➿⟀⟁⟂⟃⟄⟅⟆⟇⟈⟉⟊⟋⟌⟍⟎⟏⟐⟑⟒⟓⟔⟕⟖⟗⟘⟙⟚⟛⟜⟝⟞⟟⟠⟡⟢⟣⟤⟥⟦⟧⟨⟩⟪⟫⟬⟭⟮⟯⟰⟱⟲⟳⟴⟵⟶⟷⟸⟹⟺⟻⟼⟽⟾⟿⠀⠁⠂⠃⠄⠅⠆⠇⠈⠉⠊⠋⠌⠍⠎⠏⠐⠑⠒⠓⠔⠕⠖⠗⠘⠙⠚" +
-        "⠛⠜⠝⠞⠟⠠⠡⠢⠣⠤⠥⠦⠧⠨⠩⠪⠫⠬⠭⠮⠯⠰⠱⠲⠳⠴⠵⠶⠷⠸⠹⠺⠻⠼⠽⠾⠿⡀⡁⡂⡃⡄⡅⡆⡇⡈⡉⡊⡋⡌⡍⡎⡏⡐⡑⡒⡓⡔⡕⡖⡗⡘⡙⡚⡛⡜⡝⡞⡟⡠⡡⡢⡣⡤⡥⡦⡧⡨⡩⡪⡫⡬⡭⡮⡯⡰⡱⡲⡳⡴⡵⡶⡷⡸⡹⡺⡻⡼⡽⡾⡿⢀⢁⢂⢃⢄⢅⢆⢇⢈⢉⢊⢋⢌⢍⢎⢏⢐⢑⢒⢓⢔⢕⢖⢗⢘⢙⢚" +
-        "⢛⢜⢝⢞⢟⢠⢡⢢⢣⢤⢥⢦⢧⢨⢩⢪⢫⢬⢭⢮⢯⢰⢱⢲⢳⢴⢵⢶⢷⢸⢹⢺⢻⢼⢽⢾⢿⣀⣁⣂⣃⣄⣅⣆⣇⣈⣉⣊⣋⣌⣍⣎⣏⣐⣑⣒⣓⣔⣕⣖⣗⣘⣙⣚⣛⣜⣝⣞⣟⣠⣡⣢⣣⣤⣥⣦⣧⣨⣩⣪⣫⣬⣭⣮⣯⣰⣱⣲⣳⣴⣵⣶⣷⣸⣹⣺⣻⣼⣽⣾⣿⤀⤁⤂⤃⤄⤅⤆⤇⤈⤉⤊⤋⤌⤍⤎⤏⤐⤑⤒⤓⤔⤕⤖⤗⤘⤙⤚" +
-        "⤛⤜⤝⤞⤟⤠⤡⤢⤣⤤⤥⤦⤧⤨⤩⤪⤫⤬⤭⤮⤯⤰⤱⤲⤳⤴⤵⤶⤷⤸⤹⤺⤻⤼⤽⤾⤿⥀⥁⥂⥃⥄⥅⥆⥇⥈⥉⥊⥋⥌⥍⥎⥏⥐⥑⥒⥓⥔⥕⥖⥗⥘⥙⥚⥛⥜⥝⥞⥟⥠⥡⥢⥣⥤⥥⥦⥧⥨⥩⥪⥫⥬⥭⥮⥯⥰⥱⥲⥳⥴⥵⥶⥷⥸⥹⥺⥻⥼⥽⥾⥿⦀⦁⦂⦃⦄⦅⦆⦇⦈⦉⦊⦋⦌⦍⦎⦏⦐⦑⦒⦓⦔⦕⦖⦗⦘⦙⦚" +
-        "⦛⦜⦝⦞⦟⦠⦡⦢⦣⦤⦥⦦⦧⦨⦩⦪⦫⦬⦭⦮⦯⦰⦱⦲⦳⦴⦵⦶⦷⦸⦹⦺⦻⦼⦽⦾⦿⧀⧁⧂⧃⧄⧅⧆⧇⧈⧉⧊⧋⧌⧍⧎⧏⧐⧑⧒⧓⧔⧕⧖⧗⧘⧙⧚⧛⧜⧝⧞⧟⧠⧡⧢⧣⧤⧥⧦⧧⧨⧩⧪⧫⧬⧭⧮⧯⧰⧱⧲⧳⧴⧵⧶⧷⧸⧹⧺⧻⧼⧽⧾⧿⨀⨁⨂⨃⨄⨅⨆⨇⨈⨉⨊⨋⨌⨍⨎⨏⨐⨑⨒⨓⨔⨕⨖⨗⨘⨙⨚" +
-        "⨛⨜⨝⨞⨟⨠⨡⨢⨣⨤⨥⨦⨧⨨⨩⨪⨫⨬⨭⨮⨯⨰⨱⨲⨳⨴⨵⨶⨷⨸⨹⨺⨻⨼⨽⨾⨿⩀⩁⩂⩃⩄⩅⩆⩇⩈⩉⩊⩋⩌⩍⩎⩏⩐⩑⩒⩓⩔⩕⩖⩗⩘⩙⩚⩛⩜⩝⩞⩟⩠⩡⩢⩣⩤⩥⩦⩧⩨⩩⩪⩫⩬⩭⩮⩯⩰⩱⩲⩳⩴⩵⩶⩷⩸⩹⩺⩻⩼⩽⩾⩿⪀⪁⪂⪃⪄⪅⪆⪇⪈⪉⪊⪋⪌⪍⪎⪏⪐⪑⪒⪓⪔⪕⪖⪗⪘⪙⪚" +
-        "⪛⪜⪝⪞⪟⪠⪡⪢⪣⪤⪥⪦⪧⪨⪩⪪⪫⪬⪭⪮⪯⪰⪱⪲⪳⪴⪵⪶⪷⪸⪹⪺⪻⪼⪽⪾⪿⫀⫁⫂⫃⫄⫅⫆⫇⫈⫉⫊⫋⫌⫍⫎⫏⫐⫑⫒⫓⫔⫕⫖⫗⫘⫙⫚⫛⫝⫞⫟⫠⫡⫢⫣⫤⫥⫦⫧⫨⫩⫪⫫⫬⫭⫮⫯⫰⫱⫲⫳⫴⫵⫶⫷⫸⫹⫺⫻⫼⫽⫾⫿⬀⬁⬂⬃⬄⬅⬆⬇⬈⬉⬊⬋⬌⬍⬎⬏⬐⬑⬒⬓⬔⬕⬖⬗⬘⬙⬚⬛" +
-        "⬜⬝⬞⬟⬠⬡⬢⬣⬤⬥⬦⬧⬨⬩⬪⬫⬬⬭⬮⬯⬰⬱⬲⬳⬴⬵⬶⬷⬸⬹⬺⬻⬼⬽⬾⬿⭀⭁⭂⭃⭄⭅⭆⭇⭈⭉⭊⭋⭌⭍⭎⭏⭐⭑⭒⭓⭔⭕⭖⭗⭘⭙⭚⭛⭜⭝⭞⭟⭠⭡⭢⭣⭤⭥⭦⭧⭨⭩⭪⭫⭬⭭⭮⭯⭰⭱⭲⭳⭶⭷⭸⭹⭺⭻⭼⭽⭾⭿⮀⮁⮂⮃⮄⮅⮆⮇⮈⮉⮊⮋⮌⮍⮎⮏⮐⮑⮒⮓⮔⮕⮗⮘⮙⮚⮛⮜⮝⮞" +
-        "⮟⮠⮡⮢⮣⮤⮥⮦⮧⮨⮩⮪⮫⮬⮭⮮⮯⮰⮱⮲⮳⮴⮵⮶⮷⮸⮹⮺⮻⮼⮽⮾⮿⯀⯁⯂⯃⯄⯅⯆⯇⯈⯉⯊⯋⯌⯍⯎⯏⯐⯑⯒⯓⯔⯕⯖⯗⯘⯙⯚⯛⯜⯝⯞⯟⯠⯡⯢⯣⯤⯥⯦⯧⯨⯩⯪⯫⯬⯭⯮⯯⯰⯱⯲⯳⯴⯵⯶⯷⯸⯹⯺⯻⯼⯽⯾⯿⳥⳦⳧⳨⳩⳪⳹⳺⳻⳼⳾⳿⵰⸀⸁⸂⸃⸄⸅⸆⸇⸈⸉⸊⸋⸌⸍⸎⸏⸐⸑" +
-        "⸒⸓⸔⸕⸖⸗⸘⸙⸚⸛⸜⸝⸞⸟⸠⸡⸢⸣⸤⸥⸦⸧⸨⸩⸪⸫⸬⸭⸮⸰⸱⸲⸳⸴⸵⸶⸷⸸⸹⸺⸻⸼⸽⸾⸿⹀⹁⹂⹃⹄⹅⹆⹇⹈⹉⹊⹋⹌⹍⹎⹏⹐⹑⹒⹓⹔⹕⹖⹗⹘⹙⹚⹛⹜⹝⺀⺁⺂⺃⺄⺅⺆⺇⺈⺉⺊⺋⺌⺍⺎⺏⺐⺑⺒⺓⺔⺕⺖⺗⺘⺙⺛⺜⺝⺞⺟⺠⺡⺢⺣⺤⺥⺦⺧⺨⺩⺪⺫⺬⺭⺮⺯⺰⺱⺲⺳⺴⺵" +
-        "⺶⺷⺸⺹⺺⺻⺼⺽⺾⺿⻀⻁⻂⻃⻄⻅⻆⻇⻈⻉⻊⻋⻌⻍⻎⻏⻐⻑⻒⻓⻔⻕⻖⻗⻘⻙⻚⻛⻜⻝⻞⻟⻠⻡⻢⻣⻤⻥⻦⻧⻨⻩⻪⻫⻬⻭⻮⻯⻰⻱⻲⻳⼀⼁⼂⼃⼄⼅⼆⼇⼈⼉⼊⼋⼌⼍⼎⼏⼐⼑⼒⼓⼔⼕⼖⼗⼘⼙⼚⼛⼜⼝⼞⼟⼠⼡⼢⼣⼤⼥⼦⼧⼨⼩⼪⼫⼬⼭⼮⼯⼰⼱⼲⼳⼴⼵⼶⼷⼸⼹⼺⼻⼼⼽⼾⼿⽀⽁" +
-        "⽂⽃⽄⽅⽆⽇⽈⽉⽊⽋⽌⽍⽎⽏⽐⽑⽒⽓⽔⽕⽖⽗⽘⽙⽚⽛⽜⽝⽞⽟⽠⽡⽢⽣⽤⽥⽦⽧⽨⽩⽪⽫⽬⽭⽮⽯⽰⽱⽲⽳⽴⽵⽶⽷⽸⽹⽺⽻⽼⽽⽾⽿⾀⾁⾂⾃⾄⾅⾆⾇⾈⾉⾊⾋⾌⾍⾎⾏⾐⾑⾒⾓⾔⾕⾖⾗⾘⾙⾚⾛⾜⾝⾞⾟⾠⾡⾢⾣⾤⾥⾦⾧⾨⾩⾪⾫⾬⾭⾮⾯⾰⾱⾲⾳⾴⾵⾶⾷⾸⾹⾺⾻⾼⾽⾾⾿⿀⿁" +
-        "⿂⿃⿄⿅⿆⿇⿈⿉⿊⿋⿌⿍⿎⿏⿐⿑⿒⿓⿔⿕⿰⿱⿲⿳⿴⿵⿶⿷⿸⿹⿺⿻、。〃〄〈〉《》「」『』【】〒〓〔〕〖〗〘〙〚〛〜〝〞〟〠〰〶〷〽〾〿゛゜゠・㆐㆑㆖㆗㆘㆙㆚㆛㆜㆝㆞㆟㇀㇁㇂㇃㇄㇅㇆㇇㇈㇉㇊㇋㇌㇍㇎㇏㇐㇑㇒㇓㇔㇕㇖㇗㇘㇙㇚㇛㇜㇝㇞㇟㇠㇡㇢㇣㈀㈁㈂㈃㈄㈅㈆㈇㈈" +
-        "㈉㈊㈋㈌㈍㈎㈏㈐㈑㈒㈓㈔㈕㈖㈗㈘㈙㈚㈛㈜㈝㈞㈪㈫㈬㈭㈮㈯㈰㈱㈲㈳㈴㈵㈶㈷㈸㈹㈺㈻㈼㈽㈾㈿㉀㉁㉂㉃㉄㉅㉆㉇㉐㉠㉡㉢㉣㉤㉥㉦㉧㉨㉩㉪㉫㉬㉭㉮㉯㉰㉱㉲㉳㉴㉵㉶㉷㉸㉹㉺㉻㉼㉽㉾㉿㊊㊋㊌㊍㊎㊏㊐㊑㊒㊓㊔㊕㊖㊗㊘㊙㊚㊛㊜㊝㊞㊟㊠㊡㊢㊣㊤㊥㊦㊧㊨㊩㊪㊫㊬㊭㊮㊯㊰㋀㋁㋂㋃" +
-        "㋄㋅㋆㋇㋈㋉㋊㋋㋌㋍㋎㋏㋐㋑㋒㋓㋔㋕㋖㋗㋘㋙㋚㋛㋜㋝㋞㋟㋠㋡㋢㋣㋤㋥㋦㋧㋨㋩㋪㋫㋬㋭㋮㋯㋰㋱㋲㋳㋴㋵㋶㋷㋸㋹㋺㋻㋼㋽㋾㋿㌀㌁㌂㌃㌄㌅㌆㌇㌈㌉㌊㌋㌌㌍㌎㌏㌐㌑㌒㌓㌔㌕㌖㌗㌘㌙㌚㌛㌜㌝㌞㌟㌠㌡㌢㌣㌤㌥㌦㌧㌨㌩㌪㌫㌬㌭㌮㌯㌰㌱㌲㌳㌴㌵㌶㌷㌸㌹㌺㌻㌼㌽㌾㌿㍀㍁㍂㍃" +
-        "㍄㍅㍆㍇㍈㍉㍊㍋㍌㍍㍎㍏㍐㍑㍒㍓㍔㍕㍖㍗㍘㍙㍚㍛㍜㍝㍞㍟㍠㍡㍢㍣㍤㍥㍦㍧㍨㍩㍪㍫㍬㍭㍮㍯㍰㍱㍲㍳㍴㍵㍶㍷㍸㍹㍺㍻㍼㍽㍾㍿㎀㎁㎂㎃㎄㎅㎆㎇㎈㎉㎊㎋㎌㎍㎎㎏㎐㎑㎒㎓㎔㎕㎖㎗㎘㎙㎚㎛㎜㎝㎞㎟㎠㎡㎢㎣㎤㎥㎦㎧㎨㎩㎪㎫㎬㎭㎮㎯㎰㎱㎲㎳㎴㎵㎶㎷㎸㎹㎺㎻㎼㎽㎾㎿㏀㏁㏂㏃" +
-        "㏄㏅㏆㏇㏈㏉㏊㏋㏌㏍㏎㏏㏐㏑㏒㏓㏔㏕㏖㏗㏘㏙㏚㏛㏜㏝㏞㏟㏠㏡㏢㏣㏤㏥㏦㏧㏨㏩㏪㏫㏬㏭㏮㏯㏰㏱㏲㏳㏴㏵㏶㏷㏸㏹㏺㏻㏼㏽㏾㏿䷀䷁䷂䷃䷄䷅䷆䷇䷈䷉䷊䷋䷌䷍䷎䷏䷐䷑䷒䷓䷔䷕䷖䷗䷘䷙䷚䷛䷜䷝䷞䷟䷠䷡䷢䷣䷤䷥䷦䷧䷨䷩䷪䷫䷬䷭䷮䷯䷰䷱䷲䷳䷴䷵䷶䷷䷸䷹䷺䷻䷼䷽䷾䷿꒐꒑꒒꒓";
-    encMax = 4096;
-    encMax = encMax * encMax - 1;
-}
-
 playervar Boolean tracksBusy!; // an export or import is running, the timeline and recording stay closed
 playervar Number expProgress;
 playervar String ioStatus;      // what the running export or import is doing, shown under its progress
-playervar String expLine;
-playervar String expPending;
-playervar Number expStrings!;
-playervar Number expStamp!;
-playervar Number expChars!;     // chars written so far, where the next channel starts
 playervar Number expHud!;       // the export's HUD text. not a local, a local is reset when a restarted export begins
 globalvar Number exportCount!;  // exports this game, the inspector log keeps all of them
-
-// string q of the stream, at q % TREE_STRINGS in its tree: 0, 1, 5 and 9 are outer strings, the rest inner
-Boolean ExpOuter(Number q): q % TREE_STRINGS == 0 || q % TREE_STRINGS % 4 == 1;
-
-void ExpLog(String s!) playervar "export - log"
-{
-    EnableInspectorRecording();
-    LogToInspector(s);
-    DisableInspectorRecording();
-}
-
-// conditions and actions that open the rule for importData entry e. it runs unless a higher stamp is already loaded,
-// and a higher stamp than the loaded one clears the data first, so the parts of one export can run in any order
-void ExpRuleHead(Number e!) playervar "export - rule head"
-{
-    ExpLog(<'*/ conditions { Global.importStamp <= <0>; } /*', expStamp>);
-    ExpLog(<'*/ actions { If(Global.importStamp < <0>); Global.importData = Empty Array; Global.importParts = 0; /*', expStamp>);
-    ExpLog(<'*/ Global.importStamp = <0>; End; Set Global Variable At Index(importData, <1>, Array( /*', expStamp, e>);
-}
-
-// the previous string is logged, with what closes it in its tree. an inner string ending its outer one closes it, the
-// last of a tree closes the tree. a full importData entry ends its rule and the next entry starts a new one, the boundary
-// is on one line so the timestamps between lines stay inside rules. entries hold exactly IMPORT_ARRAY trees, the import
-// finds a char by its index
-void ExpPush() playervar "export - push string"
-{
-    if (expStrings > 0)
-    {
-        Number pos! = (expStrings - 1) % TREE_STRINGS;
-        // an outer string ends in "{0}{1}{2}". OSTW reads {0} in its own strings as a format slot, so the "{" are inserted.
-        // a Custom String fills {0}, {1}, {2} one after another, and a later slot also fills its token in text an earlier
-        // one inserted, so the "{" go in through {2}, the last. OSTW drops and renumbers slots its text doesnt use
-        if (ExpOuter(expStrings - 1))
-            ExpLog(<'<0>Custom String(\"<1><2>0}<2>1}<2>2}\", /*', "*/ ", expPending, "{">);
-        else if (pos != TREE_STRINGS - 1)
-            ExpLog(<'*/ Custom String(\"<0>\")<1>, /*', expPending, pos % 4 == 0 ? ")" : "">);
-        else if (expStrings % (TREE_STRINGS * IMPORT_ARRAY) != 0)
-            ExpLog(<'*/ Custom String(\"<0>\"))), /*', expPending>);
-        else
-        {
-            ExpLog(<'*/ Custom String(\"<0>\"))))); } } rule(\"[IMPORT <1>] part <2>\") { event { Ongoing - Global; } /*', expPending, expStamp,
-                expStrings / (TREE_STRINGS * IMPORT_ARRAY) + 1>);
-            ExpRuleHead(expStrings / (TREE_STRINGS * IMPORT_ARRAY));
-        }
-    }
-    expPending = expLine;
-    expLine = "";
-    expStrings++;
-    MinWait();
-}
-
-// appends s to the stream, a full string is pushed and the rest goes on in the next
-void ExpAppend(String s!) playervar "export - append"
-{
-    expChars += StringLength(s);
-
-    while (true)
-    {
-        Number room! = (ExpOuter(expStrings) ? 119 : 128) - StringLength(expLine);
-        if (StringLength(s) < room)
-            break;
-        expLine = expLine + StringSlice(s, 0, room);
-        s = StringSlice(s, room, StringLength(s) - room);
-        ExpPush();
-    }
-    
-    expLine = expLine + s;
-}
-
-void ExpPut(Number[] v!, Number width!) playervar "export - put"
-{
-    String s! = "";
-
-    for (Number k! = 0; k < v.Length; k++)
-        s = s + (width == 1 ? charTable.CharAt(v[k]) : charTable.CharAt(Floor(v[k] / 4096)) + charTable.CharAt(v[k] % 4096));
-
-    ExpAppend(s);
-}
 
 // keys of the track in recTake, expN frames. the channel being written, and its last key as the import reconstructs it
 playervar Number expN!;
@@ -238,21 +105,34 @@ void ExpRead(Number s!) playervar "export - read"
             : Vector(POS_TOL, POS_TOL, POS_TOL);
 }
 
-// key on frame f with value v. a delta from the last key takes 1 char per axis, a value out of its range is written
-// absolute. expKv is computed the way the import computes it, so the next delta starts from what the import has
+// key on frame f with value v: short when its gap and deltas fit, a delta key (1 char per axis) when they don't, absolute
+// for a value out of the delta range. expKv is computed the way the import computes it, so the next delta starts from what
+// the import has
 void ExpKey(Number f!, Vector v!) playervar "export - key"
 {
     Vector st! = ExpInSteps(v - expKv);
     st = Vector(Near(st.X), Near(st.Y), Near(st.Z));
-    Boolean abs! = expKf < 0 || MaxAbs(st) > 2047;
-    ExpPut([f - Max(expKf, 0) + (abs ? 2048 : 0)], 1);
-    if (!abs)
+    Number gap! = f - Max(expKf, 0);
+
+    if (expKf >= 0 && MaxAbs(st) <= 2047)
     {
-        ExpPut([st.X + 2048, st.Y + 2048, st.Z + 2048].Slice(0, 3 - expCh), 1);
+        // short, the first char is below SHORT_KEYS. Abs(d + 0.5) < 512 is -512 to 511. tickI and tickJ are z and x + 512
+        tickI = st.Z + 512;
+        tickJ = st.X + 512;
+        if (expCh == Chan.Pos && gap <= 8 && Max(Abs(tickI - 511.5), Abs(tickJ - 511.5)) < 512)
+            ExpPut([(gap - 1) * 256 + Floor(tickI / 4), tickI % 4 * 1024 + tickJ, st.Y + 2048], 1);
+        else if (expCh == Chan.Look && gap <= 2 && Abs(st.Y + 0.5) < 512)
+            ExpPut([(gap - 1) * 1024 + st.Y + 512, tickJ + 1536], 1);
+        else
+        {
+            ExpPut([gap + SHORT_KEYS], 1);
+            ExpPut([st.X + 2048, st.Y + 2048, st.Z + 2048].Slice(0, 3 - expCh), 1);
+        }
         expKv += Vector(st.X * expQ.X, st.Y * expQ.Y, st.Z * expQ.Z);
     }
     else
     {
+        ExpPut([gap + ABS_KEYS], 1);
         // position in 1/4096 m over the world range, facing as yaw and pitch over their range
         Vector a! = expCh == Chan.Pos
             ? Vector(Quant(v.X), Quant(v.Y), Quant(v.Z))
@@ -287,7 +167,7 @@ void ExpCurve(Number | Chan c!) playervar "export - curve"
         lo = Vector(Max(expLo.X, lo.X), Max(expLo.Y, lo.Y), Max(expLo.Z, lo.Z));
         hi = Vector(Min(expHi.X, hi.X), Min(expHi.Y, hi.Y), Min(expHi.Z, hi.Z));
 
-        if (MaxAbs(ExpInSteps(expV - expKv)) > DELTA_LIM || d > KEY_GAP_MAX || lo.X > hi.X || lo.Y > hi.Y || lo.Z > hi.Z)
+        if (MaxAbs(ExpInSteps(expV - expKv)) > DELTA_LIM || d > CURVE_GAP_MAX || lo.X > hi.X || lo.Y > hi.Y || lo.Z > hi.Z)
         {
             if (s - 1 > expKf)
             {

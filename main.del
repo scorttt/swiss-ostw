@@ -1,6 +1,6 @@
 import "../macros-ostw/main.del";
-import "settings.json";
-// import "dbgsettings.json";
+// import "settings.json";
+import "dbgsettings.json";
 
 import "core/game.del";
 import "core/tracks.del";
@@ -26,6 +26,7 @@ import "options/menu.del";
 import "options/confirm.del";
 import "options/noclip.del";
 
+import "export/format.del";
 import "export/export.del";
 import "export/import.del";
 

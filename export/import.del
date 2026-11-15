@@ -1,11 +1,7 @@
 import "../main.del";
 
-globalvar Number importStamp;
-globalvar String[][] importData;
-globalvar String importMap;
-globalvar Number importParts;   // rules the export was split into
-
 globalvar Boolean importDone!;
+globalvar Boolean impOld!;      // the export is from Overdub 1.0.3 or older, its curve keys have no short form
 
 // decoded samples go through recBuf and recChunk like recording does, nothing is allowed to record during an import
 globalvar Number[] impV;
@@ -51,26 +47,44 @@ void ImpAt(Number | Chan c!, Number count!, Number width!) globalvar "import - a
 void ImpKey(Number c!) globalvar "import - key"
 {
     ImpAt(c, 1, 1);
-    Boolean abs! = impV[0] >= 2048;
-    impFB[c] = impFA[c] + impV[0] % 2048;
+    Number g! = impV[0]; // the next ImpAt replaces impV
 
-    if (c != Chan.Steps)
+    // short keys, layouts are in export.del
+    if (!impOld && c == Chan.Pos && g < SHORT_KEYS)
+    {
+        ImpAt(Chan.Pos, 2, 1);
+        impFB[Chan.Pos] = impFA[Chan.Pos] + Floor(g / 256) + 1;
+        impVB[Chan.Pos] = impVA[Chan.Pos] + Vector((impV[0] % 1024 - 512) * POS_STEP, (impV[1] - 2048) * POS_STEP_Y, (g % 256 * 4 + Floor(impV[0] / 1024) - 512) * POS_STEP);
+    }
+    else if (!impOld && c == Chan.Look && g < SHORT_KEYS)
+    {
+        ImpAt(Chan.Look, 1, 1);
+        impFB[Chan.Look] = impFA[Chan.Look] + Floor(g / 1024) + 1;
+        impVB[Chan.Look] = impVA[Chan.Look] + Vector(impV[0] - 2048, g % 1024 - 512, 0) * ANG_STEP;
+    }
+    // delta and absolute keys. older export's (1.0.3 and older) key is only these: its gap, +2048 when absolute
+    else if (c != Chan.Steps)
+    {
+        Boolean abs! = g >= (impOld ? 2048 : ABS_KEYS);
+        impFB[c] = impFA[c] + (impOld ? g % 2048 : (g - SHORT_KEYS) % 1024);
         ImpAt(c, 3 - c, abs ? 2 : 1);
 
-    if (c == Chan.Pos)
-    {
-        impVB[Chan.Pos] = abs
-            ? DecodePos(Vector(impV[0], impV[1], impV[2]))
-            : impVA[Chan.Pos] + Vector((impV[0] - 2048) * POS_STEP, (impV[1] - 2048) * POS_STEP_Y, (impV[2] - 2048) * POS_STEP);
-    }
-    else if (c == Chan.Look)
-    {
-        impVB[Chan.Look] = abs
-            ? DecodeLook(impVA[Chan.Look].X, impV[0], impV[1])
-            : impVA[Chan.Look] + Vector(impV[0] - 2048, impV[1] - 2048, 0) * ANG_STEP;
+        if (c == Chan.Pos)
+        {
+            impVB[Chan.Pos] = abs
+                ? DecodePos(Vector(impV[0], impV[1], impV[2]))
+                : impVA[Chan.Pos] + Vector((impV[0] - 2048) * POS_STEP, (impV[1] - 2048) * POS_STEP_Y, (impV[2] - 2048) * POS_STEP);
+        }
+        else
+        {
+            impVB[Chan.Look] = abs
+                ? DecodeLook(impVA[Chan.Look].X, impV[0], impV[1])
+                : impVA[Chan.Look] + Vector(impV[0] - 2048, impV[1] - 2048, 0) * ANG_STEP;
+        }
     }
     else
     {
+        impFB[c] = impFA[c] + g;
         ImpAt(Chan.Steps, 1, 2);
         Number b! = impV[0];
         if (b >= HEALTH_FLAG)
@@ -193,8 +207,11 @@ if (IsAlive())
         ImpAt(Chan.Header, impV[0], 2);
         StoreTrackFlags(t, impV);
 
-        // the 3 channels start with a key on frame 0, the frame loop moves each on when it reaches its next key
-        impCur[Chan.Pos] = impCur[Chan.Header];
+        // the 3 channels start with a key on frame 0, the frame loop moves each on when it reaches its next key. the
+        // first position key is absolute: 2048 in an old export (1.0.3 and older), ABS_KEYS in a new one
+        ImpAt(Chan.Header, 1, 1);
+        impOld = impV[0] == 2048;
+        impCur[Chan.Pos] = impCur[Chan.Header] - 1;
         impCur[Chan.Look] = dir[k * 2];
         impCur[Chan.Steps] = dir[k * 2 + 1];
         impFA = [0, 0, 0];

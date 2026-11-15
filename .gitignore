@@ -1,3 +1,4 @@
 .decompile/
 tests/
 __pycache__/
+converter/
