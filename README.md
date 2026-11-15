@@ -86,9 +86,9 @@ The number in `[IMPORT 1234]` only identifies the export (the time in game it wa
 
 ### Converting exports from versions 1.0.3 and older
 Newer versions of Overdub use a smaller export format, but still import older exports as they are. An old export is about 25% larger, so a large import leaves less room under the Workshop's element limit. To shrink it, convert it with the export converter using code J3KFX, a separate gamemode that does nothing else.
-1. Create a lobby on any map with the export converter, paste the old export's rules into it like an import, and start the game
-2. Wait for "Converted!" at the top of the screen, then copy the Inspector log like an export, with the very first timestamp removed
-3. Import that into Overdub in place of the old export. The recording plays back the same as the old export within half a millimeter.
+1. Create a lobby on any map with the export converter, paste the old format export rules into it like you would in Overdub, and start the game
+2. Wait for "Converted!" at the top of the screen, then copy the Inspector log like you normally would (with the first timestamp removed)
+3. Import that into Overdub. The recording plays back the same as the old export within half a millimeter.
 
 ## Notes and Limitations
 - Menus will only display correctly if the game is running at a 16:9 resolution, FOV is set to 103, and ingame language is not set to Traditional/Simplified Chinese, Japanese, Korean, Thai, or Russian.
