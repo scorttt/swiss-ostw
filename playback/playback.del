@@ -7,20 +7,20 @@ enum Snap
     Busy    // ability in use
 }
 
-playervar Number playClock; // Time() the playhead is at, plain since "play" writes it every tick
+playervar Number playClock; // Time() frame 0 is at while playing, regular var since playback reads it every tick
 
 // frames come from the time like recording does, a tick skipped under load moves the playhead on by more than 1
+// clock is set once and not added to every tick, the rounding of each add made the playhead stall or jump a frame
+// anything else that moves the playhead (even during playback) also sets playClock
 rule: "play"
 Event.OngoingPlayer
 if (playing)
 if (currFrame < trimEnd)
 {
-    playClock = Time() - delta; // the first frame moves at once
+    playClock = Time() - (currFrame + 1) * delta; // the first frame moves at once
     while (playing && currFrame < trimEnd)
     {
-        tickI = Near((Time() - playClock) / delta); // frames due since the last move
-        currFrame = Min(currFrame + tickI, trimEnd);
-        playClock += tickI * delta;
+        currFrame = Min(Near((Time() - playClock) / delta), trimEnd);
         MinWait();
     }
     LoopIfConditionIsTrue();
@@ -33,7 +33,10 @@ if (playing || fastForwarding || rewinding)
 if (rewinding ? currFrame <= trimStart : currFrame >= trimEnd)
 {
     if (playing && CanLoop())
+    {
         currFrame = trimStart;
+        playClock = Time() - trimStart * delta; // "play" is still in its loop and moves on from here
+    }
     else
     {
         if (!rewinding)
@@ -87,6 +90,7 @@ if (playStarting)
 {
     if (!snapRestart)
         trackHold = TRACK_IDS.Map(t => currFrame);
+
     Number chosen! = currFrame;
     Number f! = chosen;
     Number lowest! = Max(trimStart, chosen - SNAP_MAX);
@@ -95,7 +99,8 @@ if (playStarting)
     for (Number t! = 0; t < MAX_TRACKS; t++)
     {
         Boolean steady! = true;
-        if (TrackPlays(t))
+        // a track outside the window has no state in it, scanning it would read the whole window and would wait for nothing
+        if (TrackPlays(t) && TrackStart(t, player) <= chosen && TrackEnd(t, player) > lowest)
         {
             for (Number i! = chosen; i >= lowest && steady; i--)
             {

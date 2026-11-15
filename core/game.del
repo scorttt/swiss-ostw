@@ -48,7 +48,7 @@ void ResetHeroConsumables() playervar "try to reset hero consumables"
 {
     // might fail sometimes depending on hero because workshop is a pile of garbage fuck you blizzard
 
-    // only 2 clips as of writing but who knows what bullshit blizzard adds next. no loop, runs on every seeked frame
+    // only 2 clips as of writing but who knows what bullshit blizzard adds next
     SetAmmo(player, 0, MaxAmmo(player, 0));
     SetAmmo(player, 1, MaxAmmo(player, 1));
     SetAmmo(player, 2, MaxAmmo(player, 2));

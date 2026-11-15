@@ -41,19 +41,22 @@ playervar Boolean botHoldFocus; // stays where it was while unfocused
 playervar Number botF;          // frame the bot should be at, clamped to the track once driving is decided
 playervar Boolean botReleased;  // motion stopped this pass, the frame is applied next pass
 playervar Boolean botDead;      // bots only
-
+playervar Boolean botResetDue!;
 
 // playback reads a window of the track instead of storage or a whole copy: the chunk the bot is in and the start of the next one (the forced position aims up to correctLead frames ahead).
 // a whole 2 minute track per bot is too much to copy when multiple bots spawn at once, so a window moves every CHUNK_SIZE frames (2s)
 playervar Sample[] botChunkA;      // chunk botWinC of the track
 playervar Vector[] botNextPos;     // the first correctLead positions of chunk botWinC + 1
+playervar Vector[] botNextLook;
 playervar Number botWinC!;         // chunk in botChunkA, -2 before the first load
 
-// StartForcingPosition() seems to be about ~6 ticks late (2 was 4.4 frames off, 4 off 2.3, 6 off 0.3, 8 off 1.5 but ahead), 6 kept bots on the samples the best
-Number CORRECT_LEAD: 6;
+// StartForcingPosition() seems to be about ~6-7 ticks late. (5 was 1.9 frames behind, 6 was 0.8 behind, and 7 was 0.1 ahead), abilities started 1.25 and 0.5 frames early and 0.25 late against the position. 
+// StartFacing() is the same, aim was 5.9 frames behind its position, so it does the same thing as StartForcingPosition()
+Number CORRECT_LEAD: 7;
 
 Number RETAP_FRAMES: 10;
 Number FIRST_PERSON_DEATH_WAIT: 30; // amount of frames the dead human waits for the recording to die where they did
+Number RESET_REST: 0.25; // seconds the playhead rests before a seeked bot's consumables are reset since idk how bad it is to reset consumables each time
 
 // the sample at botS, always in the window's first chunk
 Vector BotPos(Player p = player): p.botChunkA[p.botS % CHUNK_SIZE].Pos;
@@ -63,7 +66,8 @@ Vector BotFacing():   LookDir(BotLook());
 Vector BotThrottleAt(): Vector(BotCtrl().X, 0, BotCtrl().Z);
 Number BotButtons():  BotCtrl().Y;
 Number BotLeadS(): Min(botS + CORRECT_LEAD, botFrames - 1);
-Vector BotLeadPos(Number s): Floor(s / CHUNK_SIZE) == botWinC ? botChunkA[s % CHUNK_SIZE].Pos : botNextPos[s % CHUNK_SIZE]; // s from BotLeadS
+Vector BotLeadPos(Number s):  Floor(s / CHUNK_SIZE) == botWinC ? botChunkA[s % CHUNK_SIZE].Pos  : botNextPos[s % CHUNK_SIZE]; // s from BotLeadS
+Vector BotLeadLook(Number s): Floor(s / CHUNK_SIZE) == botWinC ? botChunkA[s % CHUNK_SIZE].Look : botNextLook[s % CHUNK_SIZE]; // s from BotLeadS
 Number BotRecHealth(): BotLook().Z > 0 ? BotLook().Z : MaxHealth();
 Number BotGravityNow(): botDriven || HasBit(BotButtons(), Bit.Ground) ? 100 : 0;
 
@@ -156,6 +160,22 @@ void StopBotMotion() playervar "bot - stop motion"
     botMoving = false;
 }
 
+// hypothetical fix: ticks skipped under load moves the playhead by 2 and the frame in between is never held. a button that's only down in that frame is pressed instead
+// both frames have to be in the window, large jumps aren't checked
+void BotSkippedTap() playervar "bot - skipped tap"
+{
+    tickJ = botS % CHUNK_SIZE + 1; // skipped frame, new one is after it
+    if (tickJ + 1 >= CHUNK_SIZE)
+        return;
+
+    tickK = botChunkA[tickJ].Ctrl.Y;
+    for (tickI = 0; tickI < 10; tickI++) // BOT_BUTTONS
+    {
+        if (HasBit(tickK, 2^tickI) && !HasBit(botButtons, 2^tickI) && !HasBit(botChunkA[tickJ + 1].Ctrl.Y, 2^tickI))
+            PressButton(player, BOT_BUTTONS[tickI]);
+    }
+}
+
 // botChunkA = chunk tickI of track t
 void ReadChunkToA(Number t!) playervar "bot - read chunk"
 {
@@ -182,6 +202,10 @@ void LoadBotWindow() playervar "bot - load window"
     tickI = Floor(botS / CHUNK_SIZE) + 1;
     ReadChunkToA(botTrack);
     botNextPos = botChunkA.Slice(0, CORRECT_LEAD).Map(s => s.Pos);
+    
+    if (IsDummyBot())
+        botNextLook = botChunkA.Slice(0, CORRECT_LEAD).Map(s => s.Look);
+
     tickI--;
     ReadChunkToA(botTrack);
     botWinC = tickI;
@@ -276,7 +300,7 @@ if (EntityExists(botOwner))
 
 
         if (((botOwner.playing || botOwner.preRolling || (botOwner.recording && !botHoldRec)) && !botHoldFocus
-            && botF >= botStart && botF < botStart + botFrames) != botDriven)
+            && botF >= botStart && botF < botStart + botFrames && botF >= botFrame) != botDriven)
         {
             botDriven = !botDriven;
 
@@ -293,6 +317,14 @@ if (EntityExists(botOwner))
                 StopMomentum();
                 CancelActions();
                 botFrame = -1; // reapply the frame, gravity follows on ground bit again (pausing mid-air)
+
+                if (IsDummyBot())
+                    botResetDue = true;
+            }
+            else if (botResetDue) // driven again before the playhead rested
+            {
+                ResetHeroConsumables();
+                botResetDue = false;
             }
         }
 
@@ -348,11 +380,17 @@ if (EntityExists(botOwner))
             else if (!botDriven && (IsDummyBot() || !botSampleDead))
             {
                 Teleport(player, BotPos());
-                if (IsDummyBot())
-                    ResetHeroConsumables();
+
+                if (IsDummyBot() && !botResetDue)
+                    botResetDue = true;
             }
 
             botFrame = botF;
+        }
+        else if (botResetDue && !botDriven && !botReleased)
+        {
+            ResetHeroConsumables();
+            botResetDue = false;
         }
 
         if (!IsDummyBot() && timelineOpen && botFrame != -1 && botFacingFrame != botFrame && !IsDragging(player))
@@ -449,9 +487,13 @@ if (EntityExists(botOwner))
         if (botMoving && !botSampleDead && botFrame != -1)
         {
             // the owner's playKey is one number, so the check every tick stays short. the bot's track keeps its start and length as long as the bot exists
+            // it also ends when the playhead goes back (playback looped), the bot then starts over from the new frame
             while (IsAlive() && botOwner.playKey == botKey
-                && botOwner.currFrame >= botStart && botOwner.currFrame < botStart + botFrames)
+                && botOwner.currFrame >= botS + botStart && botOwner.currFrame < botStart + botFrames)
             {
+                if (botOwner.currFrame - botStart - botS == 2)
+                    BotSkippedTap();
+
                 botS = botOwner.currFrame - botStart;
 
                 if (Floor(botS / CHUNK_SIZE) != botWinC)
@@ -469,10 +511,11 @@ if (EntityExists(botOwner))
                 if (botBtn % Bit.UsingAb1 != botButtons)
                     SetBotButtons();
 
-                botFacing = BotFacing();
                 botThrottle = BotThrottleAt();
                 tickI = BotLeadS();
                 botForcePos = BotLeadPos(tickI);
+                // human camera turn was never measured
+                botFacing = IsDummyBot() ? LookDir(BotLeadLook(tickI)) : BotFacing();
 
                 tickJ = BotRecHealth();
                 if (!botLive && Health() != tickJ)
@@ -508,7 +551,7 @@ if (EntityExists(botOwner))
         if (IsDummyBot() && !botDriven && botFrame != -1)
         {
             WaitUntil(IsDead() != botDead || botOwner.playKey != botKey
-                || (!botHoldRec && !botHoldFocus && Clamp(botOwner.currFrame, botStart, botStart + botFrames - 1) != botF), 0.5);
+                || (!botHoldRec && !botHoldFocus && Clamp(botOwner.currFrame, botStart, botStart + botFrames - 1) != botF), botResetDue ? RESET_REST : 0.5);
         }
     }
 
