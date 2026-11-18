@@ -19,6 +19,18 @@ DELTA_LIM = 2000; KEY_GAP_MAX = 2047; OPEN = 100000.0
 #   position, gap up to 8, x and z -512 to 511: (gap - 1) * 256 + (z + 512) // 4, (z + 512) % 4 * 1024 + x + 512, height + 2048
 #   facing, gap up to 2, pitch -512 to 511: (gap - 1) * 1024 + pitch + 512, yaw + 2048
 SHORT_KEYS = 2048; ABS_KEYS = 3072; CURVE_GAP_MAX = 1023
+# Packed2, what Overdub writes. Packed (after 1.0.3) is the same but for facing's short keys and the steps (see Reader). position
+# is as above. facing keys hold their deltas minus the last facing key's (0 after an absolute key), first char:
+#   below TINY_LOOK, gap 1, yaw -32 to 31, pitch -8 to 7: (yaw + 32) * 16 + pitch + 8
+#   below SHORT_KEYS, gap up to 2, yaw -2048 to 2047, pitch -256 to 255: TINY_LOOK + (gap - 1) * 512 + pitch + 256, yaw + 2048
+#   delta (the deltas themselves) and absolute keys as above
+# steps, first char:
+#   below STEP_BUTTONS, same buttons and health, throttle at -1, 0 or 1 on both axes, gap up to 113: (gap - 1) * 9 + x * 3 + z
+#     (levels 0 to 2, decoded to exactly -1, 0 and 1)
+#   below STEP_FULL, same throttle and health, gap up to 128: STEP_BUTTONS + (gap - 1) * 8 + buttons // 4096, buttons % 4096
+#   then a full key, STEP_FULL + gap and the fields as before. a track's first key is full (it has the health), so a first
+#   steps char of STEP_FULL or more marks a Packed2 export
+TINY_LOOK = 1024; STEP_BUTTONS = 1024; STEP_FULL = 2048
 ENC_MAX = 4096 * 4096 - 1
 FIELDS = ("x", "y", "z", "yaw", "pitch", "hp", "b", "tx", "tz")
 
@@ -108,6 +120,8 @@ class Reader:
         self.va = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
         self.vb = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
         self.hp_a = 0.0; self.hp_b = 0.0
+        self.v2 = False                     # Packed2, else Packed
+        self.pd = [0, 0]                    # Packed2: the last facing key's deltas in steps
 
     def char(self, k):
         return IDX[self.ent[k // (IMPORT_ARRAY * TREE_CHARS)][k // TREE_CHARS % IMPORT_ARRAY][k % TREE_CHARS]]
@@ -129,11 +143,31 @@ class Reader:
             d = (r[0] % 1024 - 512, r[1] - 2048, g % 256 * 4 + r[0] // 1024 - 512)
             self.vb[0] = [va[i] + d[i] * (POS_STEP, POS_STEP_Y, POS_STEP)[i] for i in range(3)]
             return
+        if c == 1 and g < SHORT_KEYS and self.v2:
+            if g < TINY_LOOK:
+                gap = 1; ry = g // 16 - 32; rp = g % 16 - 8
+            else:
+                gap = (g - TINY_LOOK) // 512 + 1; rp = (g - TINY_LOOK) % 512 - 256; ry = self.at(1, 1, 1)[0] - 2048
+            self.pd = [self.pd[0] + ry, self.pd[1] + rp]
+            self.fb[1] = self.fa[1] + gap
+            self.vb[1] = [va[0] + self.pd[0] * ANG_STEP, va[1] + self.pd[1] * ANG_STEP, 0.0]
+            return
         if c == 1 and g < SHORT_KEYS:
             r = self.at(1, 1, 1)
             self.fb[1] = self.fa[1] + g // 1024 + 1
             self.vb[1] = [va[0] + (r[0] - 2048) * ANG_STEP, va[1] + (g % 1024 - 512) * ANG_STEP, 0.0]
             return
+        if c == 2 and self.v2 and g < STEP_FULL:
+            p = self.vb[2]      # still the last key
+            if g < STEP_BUTTONS:
+                self.fb[2] = self.fa[2] + g // 9 + 1
+                self.vb[2] = [g % 9 // 3 - 1, p[1], g % 3 - 1]
+            else:
+                self.fb[2] = self.fa[2] + (g - STEP_BUTTONS) // 8 + 1
+                self.vb[2] = [p[0], (g - STEP_BUTTONS) % 8 * 4096 + self.at(2, 1, 1)[0], p[2]]
+            return
+        if c == 2 and self.v2:
+            g -= STEP_FULL
         absolute = c < 2 and g >= ABS_KEYS
         self.fb[c] = self.fa[c] + (g if c == 2 else (g - SHORT_KEYS) % 1024)
         if c == 0:
@@ -146,8 +180,10 @@ class Reader:
             v = self.at(1, 2, 2 if absolute else 1)
             if absolute:
                 self.vb[1] = [va[0] + wrap(v[0] / ENC_MAX * 360 - 180 - va[0]), v[1] / ENC_MAX * 180 - 90, 0.0]
+                self.pd = [0, 0]
             else:
                 self.vb[1] = [va[0] + (v[0] - 2048) * ANG_STEP, va[1] + (v[1] - 2048) * ANG_STEP, 0.0]
+                self.pd = [v[0] - 2048, v[1] - 2048]
         else:
             b = self.at(2, 1, 2)[0]
             if b >= HEALTH_FLAG:
@@ -156,12 +192,14 @@ class Reader:
             t = self.at(2, 2, 1)
             self.vb[2] = [t[0] / 2047.5 - 1, b, t[1] / 2047.5 - 1]
 
-    # the directory is read once, then the header and first keys of each track
+    # the directory is read once, then the header and first keys of each track. a Packed2 export's first steps char is STEP_FULL or more
     def read_directory(self, chars):
         h = self.at(3, 2, 1)
         trim = self.at(3, 2, 2)
         self.cur[2] = chars - h[1] * 4
-        return h, trim, self.at(2, h[1] * 2, 2)
+        directory = self.at(2, h[1] * 2, 2)
+        self.v2 = h[1] > 0 and self.char(directory[1]) >= STEP_FULL
+        return h, trim, directory
 
     def begin_track(self, k, directory):
         hdr = self.at(3, 3, 1)
@@ -327,6 +365,8 @@ def read_export(path, dump, plain=""):
 
 # ---- source: old per-frame format ----
 def load_source(path):
+    if path.lower().endswith(".csv"):
+        return load_csv(path)
     txt = read_text(path)
     stamp = int(first(r'rule\("\[IMPORT (\d+)\][^"]*"\)', txt) or 0)
     map_name = first(r'importMap = Custom String\("([^"]*)"\)', txt)
@@ -363,6 +403,25 @@ def load_source(path):
     return src, stamp, map_name, focus, count, trim_s, trim_e
 
 
+# ---- source: a --dump csv of every frame (track, frame, buttons, x y z, yaw, pitch, health, throttle x z). heroes, teams
+# and starts aren't in it ----
+def load_csv(path):
+    rows = {}
+    for line in read_text(path).splitlines()[1:]:
+        if line.strip():
+            r = line.split(",")
+            rows.setdefault(int(r[0]), []).append(r)
+    src = []
+    for k, t in enumerate(sorted(rows)):
+        rs = rows[t]
+        T = Track(k, 0, 0, 0, len(rs), [])
+        for s, r in enumerate(rs):
+            T.b[s] = int(r[2]); T.x[s] = float(r[3]); T.y[s] = float(r[4]); T.z[s] = float(r[5])
+            T.yaw[s] = float(r[6]); T.pitch[s] = float(r[7]); T.hp[s] = float(r[8]); T.tx[s] = float(r[9]); T.tz[s] = float(r[10])
+        src.append(T)
+    return src, 0, "", 0, len(src), 0, max(T.n for T in src)
+
+
 # ---- optional tiling: each new track runs through the source tracks back to back from a different one ----
 def tile(src, tracks, frames):
     tiled = []
@@ -380,6 +439,27 @@ def tile(src, tracks, frames):
 
 
 # ---- encode, the same steps as export.del ----
+# a Packed2 facing key that isn't absolute, st its deltas in steps and pd the last facing key's. its values, 1 char each
+def look_key(gap, st, pd):
+    ry = st[0] - pd[0]; rp = st[1] - pd[1]
+    if gap == 1 and -32 <= ry < 32 and -8 <= rp < 8:
+        return [(ry + 32) * 16 + rp + 8]
+    if gap <= 2 and -2048 <= ry < 2048 and -256 <= rp < 256:
+        return [TINY_LOOK + (gap - 1) * 512 + rp + 256, ry + 2048]
+    return [gap + SHORT_KEYS, st[0] + 2048, st[1] + 2048]
+
+
+# a Packed2 steps key: v is throttle x, buttons, throttle z as written, last the last key's, hp the health * 1024 when it
+# changed (else None). its (value, width) pairs. x % 4095 % 2048 is 0 for 0, 2048 and 4095 only
+def step_key(gap, v, last, hp):
+    tx, b, tz = v
+    if hp is None and b == last[1] and gap <= 113 and tx % 4095 % 2048 == 0 and tz % 4095 % 2048 == 0:
+        return [((gap - 1) * 9 + near(tx / 2047.5) * 3 + near(tz / 2047.5), 1)]
+    if hp is None and (tx, tz) == (last[0], last[2]) and gap <= 128:
+        return [(STEP_BUTTONS + (gap - 1) * 8 + b // 4096, 1), (b % 4096, 1)]
+    return [(gap + STEP_FULL, 1)] + ([(b, 2)] if hp is None else [(b + HEALTH_FLAG, 2), (hp, 2)]) + [(tx, 1), (tz, 1)]
+
+
 class Encoder:
     def __init__(self, pos_tol, ang_tol):
         self.pos_tol = pos_tol; self.ang_tol = ang_tol
@@ -401,6 +481,7 @@ class Encoder:
         q = (POS_STEP, POS_STEP_Y, POS_STEP) if c == 0 else (ANG_STEP, ANG_STEP, ANG_STEP)
         kf = -1
         kv = [0.0, 0.0, 0.0]
+        pd = [0, 0]             # the last facing key's deltas in steps
 
         # tolerance per axis of frame s, height tight on frames recorded on the ground
         def tol_at(s):
@@ -420,21 +501,21 @@ class Encoder:
             return [(v[i] - kv[i]) / q[i] for i in range(3)]
 
         def key(f, v):
-            nonlocal kf, kv
+            nonlocal kf, kv, pd
             st = [near(x) for x in in_steps(v)]
             gap = f - max(kf, 0)
             absolute = kf < 0 or max_abs(st) > 2047
             if gap > CURVE_GAP_MAX:
                 raise ValueError(f"gap {gap} over {CURVE_GAP_MAX}")
-            if not absolute and c == 0 and gap <= 8 and abs(st[0] + 0.5) < 512 and abs(st[2] + 0.5) < 512:
+            if not absolute and c == 1:
+                self.put(look_key(gap, st, pd), 1)
+                pd = st[:2]
+                kv = [kv[i] + st[i] * q[i] for i in range(3)]
+            elif not absolute and gap <= 8 and abs(st[0] + 0.5) < 512 and abs(st[2] + 0.5) < 512:
                 self.put([(gap - 1) * 256 + (st[2] + 512) // 4, (st[2] + 512) % 4 * 1024 + st[0] + 512, st[1] + 2048], 1)
                 kv = [kv[i] + st[i] * q[i] for i in range(3)]
-            elif not absolute and c == 1 and gap <= 2 and abs(st[1] + 0.5) < 512:
-                self.put([(gap - 1) * 1024 + st[1] + 512, st[0] + 2048], 1)
-                kv = [kv[i] + st[i] * q[i] for i in range(3)]
             elif not absolute:
-                self.put([gap + SHORT_KEYS], 1)
-                self.put([x + 2048 for x in st[:3 - c]], 1)
+                self.put([gap + SHORT_KEYS] + [x + 2048 for x in st], 1)
                 kv = [kv[i] + st[i] * q[i] for i in range(3)]
             elif c == 0:
                 self.put([gap + ABS_KEYS], 1)
@@ -446,6 +527,7 @@ class Encoder:
                 a = [near((wrap(v[0]) + 180) / 360 * ENC_MAX), near((v[1] + 90) / 180 * ENC_MAX)]
                 self.put(a, 2)
                 kv = [kv[0] + wrap(a[0] / ENC_MAX * 360 - 180 - kv[0]), a[1] / ENC_MAX * 180 - 90, 0.0]
+                pd = [0, 0]
             kf = f
 
         key(0, read(0))
@@ -475,17 +557,13 @@ class Encoder:
             key(n - 1, [kv[i] + (lo[i] + hi[i]) / 2 * g for i in range(3)])
 
     def steps(self, T):
-        kf = 0; last = None; last_hp = -1
+        kf = 0; last = (-1, -1, -1); last_hp = -1
         for s in range(T.n):
-            tx = near((T.tx[s] + 1) * 2047.5); tz = near((T.tz[s] + 1) * 2047.5); b = T.b[s]; hp = T.hp[s]
-            v = (tx, b, tz)
-            if v != last or hp != last_hp or s == T.n - 1 or s - kf >= KEY_GAP_MAX:
-                self.put([s - kf], 1)
-                if hp != last_hp:
-                    self.put([b + HEALTH_FLAG, min(near(hp * 1024), ENC_MAX)], 2)
-                else:
-                    self.put([b], 2)
-                self.put([tx, tz], 1)
+            v = (near((T.tx[s] + 1) * 2047.5), T.b[s], near((T.tz[s] + 1) * 2047.5)); hp = T.hp[s]
+            gap = s - kf
+            if v != last or hp != last_hp or s == T.n - 1 or gap >= KEY_GAP_MAX:
+                for x, w in step_key(gap, v, last, min(near(hp * 1024), ENC_MAX) if hp != last_hp else None):
+                    self.put([x], w)
                 kf = s; last = v; last_hp = hp
 
     def encode(self, src, focus, count, trim_s, trim_e):

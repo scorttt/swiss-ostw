@@ -63,7 +63,7 @@ globalvar Sample[][] trackChunks8;
 globalvar Sample[][] trackChunks9;
 globalvar Sample[][] trackChunks10;
 globalvar Sample[][] trackChunks11;
-globalvar Sample[][] recTake;   // staging for whole tracks or a take's slots. used within a tick
+globalvar Sample[][] recTake;   // staging for whole tracks or a take's slots. used within a tick, except by ExportTracks since nothing can be recorded while exporting
 
 globalvar Sample[] recSlot0;
 globalvar Sample[] recSlot1;
@@ -90,8 +90,8 @@ globalvar Number recSlotTrack!;
 globalvar Number recSlotKeep!;  // chunks a retake keeps of recSlotTrack, the old take after them is cut at the take's first flush. 0 once cut
 
 // samples read by ReadTrackSample
-playervar Vector readPos!;
-playervar Vector readLook!;
+playervar Vector readPos;
+playervar Vector readLook;
 playervar Vector readCtrl!;
 
 void ClearTrack(Number t!) playervar "rec - clear track"
@@ -114,7 +114,7 @@ void ClearTrack(Number t!) playervar "rec - clear track"
 }
 
 // recTake = track t
-void LoadTrackStage(Number t!) playervar "rec - load track"
+void LoadTrackStage(in Number t)
 {
     switch (t)
     {

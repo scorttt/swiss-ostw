@@ -121,7 +121,7 @@ void BeginTake(Number t!, Number keep! = 0) playervar "rec - begin take"
 }
 
 // a retake keeps the first kept samples of track t. whole chunks stay in storage, the rest of the next chunk goes back into the levels
-void BeginPunch(Number t!, Number kept!) playervar "rec - begin punch"
+void BeginPunch(in Number t, in Number kept)
 {
     // the chunk the take starts in, read before BeginTake clears a track that keeps no whole chunk. into botChunkA, the
     // countdown ended FirstPerson so the human's "bot playback" isn't using it
@@ -160,18 +160,6 @@ if (botOwner != player) // "bot playback" respawns the human playing FirstPerson
     ApplyMovementState();
     TeleportFacing(NearestWalkablePos(pos), facing);
 }
-
-// rule: "unkillable outside recording"
-// Event.OngoingPlayer
-// if (!IsDummyBot())
-// if (IsAlive())
-// if (HasStatus(player, Status.Unkillable) == recording)
-// {
-//     if (recording)
-//         ClearStatus(player, Status.Unkillable);
-//     else
-//         SetStatus(player, null, Status.Unkillable, 99999);
-// }
 
 Number RecHealth(): Min(opts[Opt.RecHealthValue], MaxHealth());
 
@@ -225,8 +213,8 @@ Number PUNCH_AIM_DIST:   10;
 Number PUNCH_AIM_SIZE:   0.05; // sphere radius per meter
 
 Number WHOLE_TAKE: -1; // punchFrame of a whole take, a retake's is the frame it starts at
-playervar Number punchFrame!;
-playervar Vector punchPos!;
+playervar Number punchFrame;
+playervar Vector punchPos;
 playervar Vector punchDir!;
 playervar Vector punchAim!;
 playervar Number punchAimR!;
@@ -238,7 +226,7 @@ playervar Boolean canRetake!;
 
 Number TakeStart(Player p = player): p.punchFrame == WHOLE_TAKE ? p.recStart : p.punchFrame;
 Boolean ArmedRetake(Player p = player): p.canRetake && p.punchFrame != WHOLE_TAKE; // the armed take is a retake, only used while recordArmed
-Number RetakeStart(Player p = player): Min(p.currFrame, p.recStart + p.recFrames - 1);  // "cursor hover" keeps this for the Record button, "record countdown" checks again when the timeline is closed
+Number RetakeStart(Player p = player): Min(p.currFrame, p.recStart + p.recFrames - 1);  // "cursor hover" keeps canRetake for the Record button, "record countdown" checks again when the timeline is closed
 Boolean RetakeKeepsFrames(): HasRecording() && currFrame > recStart; // from the track's start (or with no track) nothing would be kept
 Boolean RetakeHeroMatches(): HeroOf() == trackHero[focusedTrack];
 Boolean RetakeInTrim(): recStart + recFrames > trimStart; // a track that ends before the trim start would be retaken outside the trim
@@ -300,7 +288,7 @@ if (!timelineOpen)
     DestroyTrackBot(focusedTrack);
 
     Number from! = currFrame;
-    Number target! = OptOn(Opt.RecFromTrimStart) ? trimStart : currFrame; // take start
+    Number target = OptOn(Opt.RecFromTrimStart) ? trimStart : currFrame; // take start
     Boolean guides! = punchFrame != WHOLE_TAKE;
     Any posRing!;
     Any posSphere!;
@@ -441,7 +429,7 @@ if (!timelineOpen)
     }
 }
 
-void StartRecording() playervar "rec - start recording"
+void StartRecording()
 {
     recordArmed = false;
 

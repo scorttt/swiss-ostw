@@ -1,14 +1,5 @@
 import "../main.del";
 
-// what firstPerson resumes when the timeline closes
-enum Paused
-{
-    None,
-    Play,
-    Forward,
-    Rewind
-}
-
 playervar Boolean firstPerson;
 playervar Boolean firstPersonLeft!; // detached during playback
 playervar Vector firstPersonReturnPos!;
@@ -19,7 +10,8 @@ rule: "firstPerson attach"
 Event.OngoingPlayer
 if (!firstPerson)
 if (!firstPersonLeft)
-if (playStarting || playing)
+if (playMode != PlayMode.None)
+if (playMode <= PlayMode.Play)
 if (HasRecording())
 if (opts[Opt.Perspective] == Persp.FirstPerson)
 {
@@ -34,40 +26,35 @@ if (opts[Opt.Perspective] == Persp.FirstPerson)
     ApplyMovementState();
 }
 
-playervar Paused firstPersonPaused;
+playervar PlayMode firstPersonPaused;
 
 rule: "firstPerson pause with timeline"
 Event.OngoingPlayer
 if (firstPerson)
 if (timelineOpen)
-if (playing || playStarting || fastForwarding || rewinding)
+if (playMode != PlayMode.None)
 {
-    firstPersonPaused = fastForwarding ? Paused.Forward : rewinding ? Paused.Rewind : Paused.Play;
-    playing = false;
-    playStarting = false;
-    fastForwarding = false;
-    rewinding = false;
+    firstPersonPaused = playMode;
+    playMode = PlayMode.None;
 }
 
 // when the timeline closes, or when firstPerson ends with it open (the playback goes on in the new perspective)
 rule: "firstPerson resume"
 Event.OngoingPlayer
-if (firstPersonPaused != Paused.None)
+if (firstPersonPaused != PlayMode.None)
 if (!timelineOpen || !firstPerson)
 {
     // StopAll clears firstPersonPaused
-    if (firstPersonPaused == Paused.Forward)
-        fastForwarding = true;
-    else if (firstPersonPaused == Paused.Rewind)
-        rewinding = true;
+    if (firstPersonPaused >= PlayMode.Rewind)
+        playMode = firstPersonPaused;
     else if (currFrame >= trimEnd)
-        playing = true; // seeked to the end, "playback range end" either loops or stops it
+        playMode = PlayMode.Play; // seeked to end
     else
     {
         snapRestart = true;
-        playStarting = true;
+        playMode = PlayMode.Starting;
     }
-    firstPersonPaused = Paused.None;
+    firstPersonPaused = PlayMode.None;
 }
 
 // the track's hero, then "starts" playback on the human
@@ -189,23 +176,22 @@ rule: "orbit camera"
 Event.OngoingPlayer
 if (OrbitActive())
 {
-    orbitCam = true;
-    ApplyMovementState(); // also disallows the buttons
-    SetInvisible(player, InvisibleTo.All);
-
+    // loops on the rule's condition, so OrbitActive() is written once
     orbitPos = OrbitSample();
-    StartCamera(player, OrbitEye(), orbitPos, ORBIT_BLEND);
-
-    while (OrbitActive())
+    if (!orbitCam)
     {
-        orbitPos = OrbitSample();
-        orbitUi = OrbitEye() - EyePos();
-
-        if (!playbackActive && currFrame == trimStart)
-            orbiting = false;
-
-        MinWait();
+        orbitCam = true;
+        ApplyMovementState(); // also disallows the buttons
+        SetInvisible(player, InvisibleTo.All);
+        StartCamera(player, OrbitEye(), orbitPos, ORBIT_BLEND);
     }
+    orbitUi = OrbitEye() - EyePos();
+
+    if (!playbackActive && currFrame == trimStart)
+        orbiting = false;
+
+    MinWait();
+    LoopIfConditionIsTrue();
 
     StopCamera();
     SetInvisible(player, InvisibleTo.None);

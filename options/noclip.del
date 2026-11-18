@@ -58,21 +58,20 @@ if (IsInteractHeld())
     SmallMessage(player, OptOn(Opt.Noclip) ? "Noclip on" : "Noclip off");
 }
 
-playervar Vector noclipDir;
-
 rule: "noclip"
 Event.OngoingPlayer
 if (OptOn(Opt.Noclip))
 if (!firstPerson)
 {
-    noclipDir = MoveLocked() ? Vector(0, 0, 0)
+    // readPos holds the move direction, only kept for a tick
+    readPos = MoveLocked() ? Vector(0, 0, 0)
         : Facing() * ThrottleOf().Z + WorldVectorOf(Left(), player, LocalVector.Rotation) * ThrottleX()
             + Up() * ((IsJumpHeld() ? 1 : 0) - (IsCrouchHeld() ? 1 : 0));
 
-    if (Mag(noclipDir) > 0)
+    if (Mag(readPos) > 0)
     {
         ApplyImpulse(player, VelocityOf() * -1, SpeedOf() * NOCLIP_DRAG_MOVING, Relative.ToWorld, ContraryMotion.Incorporate);
-        ApplyImpulse(player, Norm(noclipDir), (NOCLIP_SPEED + (IsReloadHeld() ? NOCLIP_BOOST : 0) - SpeedOf()) * delta, Relative.ToWorld, ContraryMotion.Incorporate);
+        ApplyImpulse(player, Norm(readPos), (NOCLIP_SPEED + (IsReloadHeld() ? NOCLIP_BOOST : 0) - SpeedOf()) * delta, Relative.ToWorld, ContraryMotion.Incorporate);
     }
     else if (SpeedOf() > 0.01)
         ApplyImpulse(player, VelocityOf() * -1, SpeedOf() * NOCLIP_DRAG_IDLE, Relative.ToWorld, ContraryMotion.Incorporate);

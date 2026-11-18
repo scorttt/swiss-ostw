@@ -16,8 +16,6 @@ playervar Number confirmId; // id clicked once and waiting for a second click, c
 playervar Number hoverX;
 playervar Number hoverY;
 playervar Number hoverHit;    // hovered id this tick
-playervar Number hoverFlag;   // hovered flag this tick
-playervar Drag hoverHandle;   // hovered trim handle this tick
 
 
 Number CAM_TURN_WAIT:      0.25; // seconds a turn gets to land
@@ -42,7 +40,7 @@ if (timelineOpen)
     }
 
     hoverHit = Ctrl.None;
-    hoverFlag = -1;
+    tickK = -1; // hovered flag
 
     ctrlEnabled = CtrlEnabledNow().Map((on, i) => on && (!recording || i == Ctrl.Record || i == Ctrl.AddFlag));
 
@@ -73,7 +71,7 @@ if (timelineOpen)
         {
             if (Abs(FrameToTrackX(flags[tickI], player) - hoverX) < 0.015)
             {
-                hoverFlag = tickI;
+                tickK = tickI;
                 break;
             }
         }
@@ -124,29 +122,29 @@ if (timelineOpen)
 
     if (hovered != hoverHit)
         hovered = hoverHit;
-    if (hoverFlagIndex != hoverFlag)
-        hoverFlagIndex = hoverFlag;
+    if (hoverFlagIndex != tickK)
+        hoverFlagIndex = tickK;
 
     // tooltip for the hovered button, the record tooltip stays while recording
     tipCtrl = hoverHit != Ctrl.None && hoverHit < HIT_TRACK ? hoverHit : recording ? Ctrl.Record : Ctrl.None;
 
-    hoverHandle = Drag.None;
+    tickK = Drag.None; // hovered trim handle
     if (dragTarget == Drag.LHandle || dragTarget == Drag.RHandle)
-        hoverHandle = dragTarget;
+        tickK = dragTarget;
 
     else if (!IsDragging(player) && !recording && TimelineHasFrames(player) && IsInRange(hoverY, HANDLE_Y_MIN, HANDLE_Y_MAX))
     {
         tickI = Abs(hoverX - TrimStartX(player)) <= HANDLE_HALF_W; // over the left handle
         tickJ = TrimEndX(player) - TrimStartX(player) < HANDLE_MIN_GAP; // handles are close together
         if (Abs(hoverX - TrimEndX(player)) <= HANDLE_HALF_W || (tickI && tickJ))
-            // right hasndle wins, unless its at the timeline end and cant go anywhere
-            hoverHandle = trimEnd >= timelineFrames && tickJ ? Drag.LHandle : Drag.RHandle;
+            // right handle wins, unless its at the timeline end and cant go anywhere
+            tickK = trimEnd >= timelineFrames && tickJ ? Drag.LHandle : Drag.RHandle;
         else if (tickI)
-            hoverHandle = Drag.LHandle;
+            tickK = Drag.LHandle;
     }
 
-    if (handleTip != hoverHandle)
-        handleTip = hoverHandle;
+    if (handleTip != tickK)
+        handleTip = tickK;
 
     if (confirmId != Ctrl.None && confirmId != hoverHit)
         confirmId = Ctrl.None;

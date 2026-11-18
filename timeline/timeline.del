@@ -68,7 +68,7 @@ playervar Number objectiveNext!; // objective the objective button teleports to
 globalvar Number objectiveCount!;
 globalvar Boolean hasPayload!;    // payload modes put the payload first in the objective button's cycle
 
-void InitObjectives() globalvar "init objectives"
+void InitObjectives()
 {
     objectiveCount =
         [GameMode.Flashpoint, GameMode.Clash].Contains(CurrentGameMode()) ? 5
@@ -105,6 +105,13 @@ String FormattedFrameToSec(Number f): <"<0><1>",
                                                 : "",
                                             FrameToSeconds(f) % 60 + 0.0001>; // miliseconds, add small offset so overwatch doesnt hide decimal. this is stupid
 
+// FormattedFrameToSec(tickK) into frameText, so server-side labels share one copy of it
+playervar String frameText!;
+void FrameText() playervar "frame text"
+{
+    frameText = FormattedFrameToSec(tickK);
+}
+
 Number ThrottleX(Player p = player): ThrottleOf(p).X;
 Boolean TimelineVisible(): local.timelineOpen || local.closing;
 
@@ -128,7 +135,7 @@ rule: "init unsanitized text"
     DestroyAllDummyBots();
 }
 
-void InitTimelinePlayer() playervar "init timeline player"
+void InitTimelinePlayer()
 {
     hoverFlagIndex = -1;
     hovered = Ctrl.None;
@@ -234,7 +241,7 @@ rule: "create timeline text"
         Spectators:     Spectators.VisibleNever);
 
     CreateInWorldText(
-        VisibleTo:      TimelineVisible() && (local.rewinding || local.fastForwarding) ? local : null,
+        VisibleTo:      TimelineVisible() && local.playMode >= PlayMode.Rewind ? local : null,
         Header:         <"x<0>", local.framesToSkip>,
         Position:       UiPos(-2.0625, Ui.FrameMult),
         Scale:          0.75,
@@ -305,7 +312,7 @@ rule: "open menu toggle"
 Event.OngoingPlayer
 if (player == host) // the track storage is global, only the host edits
 if (!tracksBusy) // an export reads the tracks and an import writes them, nothing may edit them
-if (!HasBit(botButtons, Bit.Interact)) // not a recorded interact while playing FirstPerson
+if (!HasBit(botButtons, Bit.Interact)) // not a recorded interact while playing FirstPerson, IsButtonHeld sees those holds
 if (IsInteractHeld())
 if (!IsJumpHeld())
 if (!IsReloadHeld()) // reload + interact x2 is the recording keybind

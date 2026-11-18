@@ -9,6 +9,14 @@ enum Chan
     Header
 }
 
+// export formats the import reads. Packed2 is the one Overdub writes, the layouts are in export.del
+enum ExportFormat
+{
+    Old,        // 1.0.3 and older: curve keys are a gap char (+2048 when absolute) and their values
+    Packed,     // after 1.0.3: short position and facing keys
+    Packed2     // facing keys hold their deltas minus the last one's, 1 and 2 char steps keys
+}
+
 globalvar String charTable;      // 4096 visible symbol/punctuation chars. plain, too large to sit in the ! values that are written often
 globalvar Number encMax!;        // 4096^2 - 1, built at runtime since big literals get clamped
 
@@ -27,6 +35,31 @@ Number KEY_GAP_MAX: 2047;       // steps keys
 Number CURVE_GAP_MAX: 1023;     // position and facing keys, a delta or absolute key holds its gap in 1024 values of its first char
 Number SHORT_KEYS: 2048;        // a curve key's first char: below it a short key, below ABS_KEYS a delta key, then an absolute key
 Number ABS_KEYS: 3072;
+Number TINY_LOOK: 1024;         // Packed2 facing key's first char: below it a 1-char key, below SHORT_KEYS a 2-char one
+Number STEP_BUTTONS: 1024;      // Packed2 steps key's first char: below it throttle only (1 char), below STEP_FULL buttons
+Number STEP_FULL: 2048;         // only (2 chars), then a full key
+
+Number DELTA_ZERO: 2048;
+Number THROTTLE_HALF: 2047.5;
+Number POS_SHORT_HALF: 512;
+Number POS_SHORT_GAP_MAX: 8;
+Number THROTTLE_KEY_GAP_MAX: 113;
+Number BUTTONS_KEY_GAP_MAX: 128;
+
+Boolean LookFits1(Number gap, Number yaw, Number pitch): gap == 1 && Max(Abs(yaw + 0.5) / 32, Abs(pitch + 0.5) / 8) < 1;
+Boolean LookFits2(Number gap, Number yaw, Number pitch): gap <= 2 && Max(Abs(yaw + 0.5) / 2048, Abs(pitch + 0.5) / 256) < 1;
+Number[] LookKey1(Number yaw, Number pitch): [(yaw + 32) * 16 + pitch + 8];
+Number[] LookKey2(Number gap, Number yaw, Number pitch): [TINY_LOOK + (gap - 1) * 512 + pitch + 256, yaw + DELTA_ZERO];
+Number[] LookDeltaKey(Number gap, Vector st): [gap + SHORT_KEYS, st.X + DELTA_ZERO, st.Y + DELTA_ZERO];
+
+Boolean PosFitsShort(Number gap, Number z, Number x): gap <= POS_SHORT_GAP_MAX && Max(Abs(z - 511.5), Abs(x - 511.5)) < POS_SHORT_HALF;
+Number[] PosShortKey(Number gap, Number z, Number x, Number y): [(gap - 1) * 256 + Floor(z / 4), z % 4 * 1024 + x, y + DELTA_ZERO];
+Number[] PosDeltaKey(Number gap, Vector st): [gap + SHORT_KEYS, st.X + DELTA_ZERO, st.Y + DELTA_ZERO, st.Z + DELTA_ZERO];
+
+Number ThrottleLevel(Number q): Near(q / THROTTLE_HALF);
+Boolean ThrottleDigital(Vector v): v.X % 4095 % 2048 + v.Z % 4095 % 2048 == 0;
+Number[] ThrottleKey(Number gap, Number x, Number z): [(gap - 1) * 9 + x * 3 + z];
+Number[] ButtonsKey(Number gap, Number buttons): [STEP_BUTTONS + (gap - 1) * 8 + Floor(buttons / 4096), buttons % 4096];
 
 void InitCharTable()
 {
@@ -95,7 +128,7 @@ void ExpRuleHead(Number e!) playervar "export - rule head"
 // last of a tree closes the tree. a full importData entry ends its rule and the next entry starts a new one, the boundary
 // is on one line so the timestamps between lines stay inside rules. entries hold exactly IMPORT_ARRAY trees, the import
 // finds a char by its index
-void ExpPush() playervar "export - push string"
+void ExpPush()
 {
     if (expStrings > 0)
     {
@@ -140,7 +173,7 @@ void ExpAppend(String s!) playervar "export - append"
     expLine = expLine + s;
 }
 
-void ExpPut(Number[] v!, Number width!) playervar "export - put"
+void ExpPut(Number[] v, Number width!) playervar "export - put"  // v plain, every key writes it
 {
     String s! = "";
 

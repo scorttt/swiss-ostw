@@ -44,7 +44,6 @@ if (timelineOpen || closing)
 
 rule: "add/remove flag"
 Event.OngoingPlayer
-if (timelineOpen)
 if (canUseKeybinds)
 if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
 {
@@ -68,7 +67,6 @@ if (IsMeleeHeld() || IsPrimaryHeld() || IsSecondaryHeld())
 
 rule: "remove all flags"
 Event.OngoingPlayer
-if (timelineOpen)
 if (canUseKeybinds)
 if (hoverFlagIndex != -1 || hovered == Ctrl.AddFlag || (flags.Contains(currFrame) && IsMeleeHeld()) )
 if (IsAbility1Held())

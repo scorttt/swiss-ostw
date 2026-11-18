@@ -37,15 +37,15 @@ void LayoutOptions() playervar "opt - layout"
 {
     optVisID = [];
     optColRows = [0, 0, 0];
-    for (Number id! = 0; id < OPT_KIND.Length; id++)
+    for (tickI = 0; tickI < OPT_KIND.Length; tickI++)
     {
         // children of a toggle show while its on, children of a group while its expanded
-        if (OPT_PARENT[id] == Item.None
-            || (OPT_KIND[OPT_PARENT[id]] == OptKind.Toggle ? OptOn(OPT_VAR[OPT_PARENT[id]]) : OPT_PARENT[id] == expandedOpt))
+        if (OPT_PARENT[tickI] == Item.None
+            || (OPT_KIND[OPT_PARENT[tickI]] == OptKind.Toggle ? OptOn(OPT_VAR[OPT_PARENT[tickI]]) : OPT_PARENT[tickI] == expandedOpt))
         {
-            optY[id] = OPT_TOP_Y - (optColRows[OPT_COL[id]] + (OptRows(id) - 1) / 2) * OPT_SPACING;
-            optColRows[OPT_COL[id]] += OptRows(id);
-            optVisID += id;
+            optY[tickI] = OPT_TOP_Y - (optColRows[OPT_COL[tickI]] + (OptRows(tickI) - 1) / 2) * OPT_SPACING;
+            optColRows[OPT_COL[tickI]] += OptRows(tickI);
+            optVisID += tickI;
         }
     }
 }
@@ -61,16 +61,14 @@ if (timelineOpen)
 if (!optLabelsFresh)
 {
     optLabelsFresh = true;
-    for (Number id! = 0; id < OPT_KIND.Length; id++)
+    for (tickI = 0; tickI < OPT_KIND.Length; tickI++)
     {
-        if (OPT_KIND[id] <= OptKind.Radio)
-            optLabels[id] = <"<0> <1>", CheckBox(opts[OPT_VAR[id]] == OPT_ARG[id]), OPT_LABEL[id]>;
-        else if (OPT_KIND[id] == OptKind.Group)
-            optLabels[id] = <"<0> <1>", OPT_LABEL[id], expandedOpt == id ? "−" : "+">;
-        else if (OPT_KIND[id] == OptKind.Cycle)
-            optLabels[id] = OptOn(OPT_VAR[id]) ? OPT_LABEL[id] : CYCLE_OFF_LABEL[OPT_ARG[id]];
+        if (OPT_KIND[tickI] <= OptKind.Radio)
+            optLabels[tickI] = <"<0> <1>", CheckBox(opts[OPT_VAR[tickI]] == OPT_ARG[tickI]), OPT_LABEL[tickI]>;
+        else if (OPT_KIND[tickI] == OptKind.Group)
+            optLabels[tickI] = <"<0> <1>", OPT_LABEL[tickI], expandedOpt == tickI ? "−" : "+">;
         else
-            optLabels[id] = OPT_LABEL[id];
+            optLabels[tickI] = OPT_LABEL[tickI];
     }
 
     MinWait();
@@ -78,7 +76,7 @@ if (!optLabelsFresh)
 }
 
 // the texts of item tickI
-void CreateOptionTexts() playervar "opt - create texts"
+void CreateOptionTexts()
 {
     if (OPT_KIND[tickI] != OptKind.Slider)
     {
@@ -164,9 +162,6 @@ if (timelineOpen)
         WaitUntil(ServerLoad() < 255, 99999);
         tickI = i;
         CreateOptionTexts();
-
-        // if (optVisID.Contains(i))
-        //     Wait(0.2);
     }
 
     WaitUntil(!timelineOpen, 99999);
@@ -200,7 +195,7 @@ void ActivateOption(Number id!) playervar "opt - activate"
     Number kind! = OPT_KIND[id];
     optLabelsFresh = false;
 
-    if (kind == OptKind.Toggle || kind == OptKind.Cycle)
+    if (kind == OptKind.Toggle)
         opts[OPT_VAR[id]] = !opts[OPT_VAR[id]];
     else if (kind == OptKind.Radio)
         opts[OPT_VAR[id]] = OPT_ARG[id];

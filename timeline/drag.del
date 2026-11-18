@@ -2,7 +2,6 @@ import "../main.del";
 
 rule: "grab"
 Event.OngoingPlayer
-if (timelineOpen)
 if (canUseKeybinds)
 if (!recording)
 if (TimelineHasFrames(player))

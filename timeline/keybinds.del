@@ -2,14 +2,13 @@ import "../main.del";
 
 rule: "tl control keybinds"
 Event.OngoingPlayer
-if (timelineOpen)
 if (canUseKeybinds)
 if (!IsDragging(player))
 if (IsPrimaryHeld() || IsJumpHeld() || IsUltimateHeld() || IsAbility2Held())
 {
     if (IsPrimaryHeld())
     {
-        Number hit! = hovered;
+        Number hit = hovered;
 
         // sliders drag a preview while held ("option slider drag") and set the value on release
         if (hit >= HIT_OPT && hit < HIT_CONFIRM && OPT_KIND[hit - HIT_OPT] == OptKind.Slider)
@@ -93,7 +92,7 @@ rule: "recording r + f x2 keybind"
 Event.OngoingPlayer
 if (player == host) // the track storage is global, only the host records
 if (!tracksBusy) // recording shares the import samples
-if (!HasBit(botButtons, Bit.Reload) && !HasBit(botButtons, Bit.Interact)) // not a recorded reload or interact while playing FirstPerson
+if (!HasBit(botButtons, Bit.Reload) && !HasBit(botButtons, Bit.Interact)) // not a recorded reload or interact while playing FirstPerson, IsButtonHeld sees those holds
 if (IsReloadHeld() && IsInteractHeld())
 {
     WaitUntil(!IsInteractHeld(), 99999);
@@ -105,7 +104,6 @@ if (IsReloadHeld() && IsInteractHeld())
 
 rule: "scrub keybind"
 Event.OngoingPlayer
-if (timelineOpen)
 if (canUseKeybinds)
 if (!recording)
 if (!IsDragging(player))
@@ -123,7 +121,6 @@ if (Abs(ThrottleX()) > 0.5)
 
 rule: "flag jump keybind"
 Event.OngoingPlayer
-if (timelineOpen)
 if (canUseKeybinds)
 if (!animating)
 if (!recording)

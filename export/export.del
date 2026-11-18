@@ -1,6 +1,7 @@
 import "../main.del";
 
-// DISCLAIMER: export / import has been assisted with AI for swinging door compression, code is partially converted from a simpler export/import process
+// DISCLAIMER: export / import has been assisted with AI for swinging door compression and data packing
+// code has been converted from a simpler export/import process and rewriting/fixing many issues with data packing prototypes for Packed1/Packed2
 
 // recordings are exported through the Inspector log as pasteable vanilla Workshop rules, one per IMPORT_ARRAY trees
 // (a rule cant be pasted above 98 KB). each rule fills its own importData entry with trees of charTable characters
@@ -26,19 +27,22 @@ import "../main.del";
 //       below SHORT_KEYS, short: a key whose gap and deltas fit, most of them. the gap is in the first char
 //         position, gap up to 8, x and z -512 to 511: (gap - 1) * 256 + (z + 512) / 4, (z + 512) % 4 * 1024 + x + 512,
 //           height + 2048
-//         facing, gap up to 2, pitch -512 to 511: (gap - 1) * 1024 + pitch + 512, yaw + 2048
+//         facing: 1 or 2 chars holding the deltas minus the last key's (ExpKey)
 //       below ABS_KEYS, delta: SHORT_KEYS + the gap, then 1 char per axis (+2048)
 //       absolute: ABS_KEYS + the gap, then 2 chars per axis (first key, teleports, flicks)
 //     position on frames recorded on the ground stays within GROUND_TOL / GROUND_TOL_XZ: a bot forced a few mm above
 //     or into the floor (or a slope) flickers between airborne and grounded
-//   steps: a key whenever buttons, throttle or health change. gap (1), buttons (2, +HEALTH_FLAG when health follows),
-//     [health * 1024 (2)], throttle x z (1)
+//   steps: a key whenever buttons, throttle or health change. 1 char when only the throttle changed (to -1, 0 or 1), 2
+//     when only the buttons did, else gap (1), buttons (2, +HEALTH_FLAG when health follows), [health * 1024 (2)],
+//     throttle x z (1) (ExportTracks)
 //   every channel has a key on frame 0 and on the last frame. gaps stay under 1024 in the curves, under 2048 in the steps
+// this is ExportFormat.Packed2, the import also reads the older formats
 // then a directory: facing and steps start (2 chars each) of every track, so the import reads the 3 channels at once
 // positions cover the fixed world range -2048 to 2048 in 1/4096 m steps (0.24 mm), maps fit well inside it
 
-Number EXPORT_PER_TICK: 8;
-Number EXPORT_MAX_LOAD: 225;    // server load % the export waits under
+Number EXPORT_PER_TICK: 8;      // frames plus chars written per tick. a key every frame (noisy data) is ~4 a frame, 8 a
+                                // tick of those crashed a lobby under the load wait
+Number EXPORT_MAX_LOAD: 200;    // server load % the export waits under
 
 Number POS_TOL:   0.0057;       // m per axis, ~1 cm overall
 Number POS_STEP:  0.001;        // m per delta step
@@ -69,7 +73,7 @@ globalvar Number exportCount!;  // exports this game, the inspector log keeps al
 playervar Number expN!;
 playervar Number expCh!;        // Chan.Pos or Chan.Look
 playervar Number expKf!;        // frame of the last key, -1 before the first
-playervar Vector expKv!;
+playervar Vector expKv;         // plain, the most used export value
 playervar Vector expV!;         // value read by ExpRead
 playervar Vector expT!;         // and its tolerance per axis
 playervar Vector expQ!;         // delta step per axis of the channel
@@ -77,22 +81,27 @@ playervar Vector expLo!;        // slopes (per frame, per axis) a key on the cur
 playervar Vector expHi!;        // the last key stays within tolerance. the curve is cut when they cross
 playervar Number expDone!;      // frames encoded, for the progress
 playervar Number expTotal!;
+playervar Number expWaitAt!;    // expDone + expChars at the last wait
+playervar Vector expPd!;        // the last facing key's yaw and pitch deltas in steps, 0 after an absolute key
 
 void ExpTick() playervar "export - tick"
 {
     expDone++;
-    if (expDone % EXPORT_PER_TICK == 0)
+    if (expDone + expChars - expWaitAt >= EXPORT_PER_TICK)
     {
+        expWaitAt = expDone + expChars;
         expProgress = Floor(expDone / expTotal * 100);
         MinWait();
-        WaitUntil(ServerLoad() < EXPORT_MAX_LOAD, 2);
+        WaitUntil(ServerLoad() < EXPORT_MAX_LOAD, 10);
     }
 }
 
 Vector ExpInSteps(Vector d): Vector(d.X / expQ.X, d.Y / expQ.Y, d.Z / expQ.Z);
+Vector ExpFromSteps(Vector st): Vector(st.X * expQ.X, st.Y * expQ.Y, st.Z * expQ.Z);
 
 // frame s of channel expCh into expV and its tolerance into expT. yaw is taken around the last keys, so a curve never
-// wraps. position is held tight on frames recorded on the ground, on a slope a horizontal error is also a height error
+// wraps. position is held tight on frames recorded on the ground, on a slope a horizontal error is also a height error.
+// tickK is how far expV is from the last key in steps, ExpCurve checks it right after
 void ExpRead(Number s!) playervar "export - read"
 {
     tickI = Floor(s / CHUNK_SIZE);
@@ -103,32 +112,41 @@ void ExpRead(Number s!) playervar "export - read"
         : HasBit(recTake[tickI][tickJ].Ctrl.Y, Bit.Ground)
             ? Vector(GROUND_TOL_XZ, GROUND_TOL, GROUND_TOL_XZ)
             : Vector(POS_TOL, POS_TOL, POS_TOL);
+    tickK = MaxAbs(ExpInSteps(expV - expKv));
 }
 
 // key on frame f with value v: short when its gap and deltas fit, a delta key (1 char per axis) when they don't, absolute
 // for a value out of the delta range. expKv is computed the way the import computes it, so the next delta starts from what
 // the import has
-void ExpKey(Number f!, Vector v!) playervar "export - key"
+void ExpKey(Number f, Vector v) playervar "export - key"
 {
-    Vector st! = ExpInSteps(v - expKv);
+    Vector st = ExpInSteps(v - expKv);  // plain, read ~20 times
     st = Vector(Near(st.X), Near(st.Y), Near(st.Z));
     Number gap! = f - Max(expKf, 0);
 
     if (expKf >= 0 && MaxAbs(st) <= 2047)
     {
-        // short, the first char is below SHORT_KEYS. Abs(d + 0.5) < 512 is -512 to 511. tickI and tickJ are z and x + 512
-        tickI = st.Z + 512;
-        tickJ = st.X + 512;
-        if (expCh == Chan.Pos && gap <= 8 && Max(Abs(tickI - 511.5), Abs(tickJ - 511.5)) < 512)
-            ExpPut([(gap - 1) * 256 + Floor(tickI / 4), tickI % 4 * 1024 + tickJ, st.Y + 2048], 1);
-        else if (expCh == Chan.Look && gap <= 2 && Abs(st.Y + 0.5) < 512)
-            ExpPut([(gap - 1) * 1024 + st.Y + 512, tickJ + 1536], 1);
+        // short keys, the first char is below SHORT_KEYS, else a delta key. Abs(d + 0.5) < 512 is -512 to 511
+        if (expCh == Chan.Look)
+        {
+            // facing holds the deltas minus the last key's (expPd), yaw in tickI and pitch in tickJ:
+            //   gap 1, yaw -32 to 31, pitch -8 to 7: 1 char, (yaw + 32) * 16 + pitch + 8
+            //   gap up to 2, yaw -2048 to 2047, pitch -256 to 255: 2 chars, TINY_LOOK + (gap - 1) * 512 + pitch + 256, yaw + 2048
+            tickI = st.X - expPd.X;
+            tickJ = st.Y - expPd.Y;
+            expPd = st;
+            ExpPut(LookFits1(gap, tickI, tickJ) ? LookKey1(tickI, tickJ)
+                : LookFits2(gap, tickI, tickJ) ? LookKey2(gap, tickI, tickJ)
+                : LookDeltaKey(gap, st), 1);
+        }
         else
         {
-            ExpPut([gap + SHORT_KEYS], 1);
-            ExpPut([st.X + 2048, st.Y + 2048, st.Z + 2048].Slice(0, 3 - expCh), 1);
+            // tickI and tickJ are z and x + 512
+            tickI = st.Z + POS_SHORT_HALF;
+            tickJ = st.X + POS_SHORT_HALF;
+            ExpPut(PosFitsShort(gap, tickI, tickJ) ? PosShortKey(gap, tickI, tickJ, st.Y) : PosDeltaKey(gap, st), 1);
         }
-        expKv += Vector(st.X * expQ.X, st.Y * expQ.Y, st.Z * expQ.Z);
+        expKv += ExpFromSteps(st);
     }
     else
     {
@@ -139,6 +157,7 @@ void ExpKey(Number f!, Vector v!) playervar "export - key"
             : Vector(Near((Wrap(v.X) + 180) / 360 * encMax), Near((v.Y + 90) / 180 * encMax), 0);
         ExpPut([a.X, a.Y, a.Z].Slice(0, 3 - expCh), 2);
         expKv = expCh == Chan.Pos ? DecodePos(a) : DecodeLook(expKv.X, a.X, a.Y);
+        expPd = Vector(0, 0, 0);
     }
     expKf = f;
 }
@@ -167,14 +186,14 @@ void ExpCurve(Number | Chan c!) playervar "export - curve"
         lo = Vector(Max(expLo.X, lo.X), Max(expLo.Y, lo.Y), Max(expLo.Z, lo.Z));
         hi = Vector(Min(expHi.X, hi.X), Min(expHi.Y, hi.Y), Min(expHi.Z, hi.Z));
 
-        if (MaxAbs(ExpInSteps(expV - expKv)) > DELTA_LIM || d > CURVE_GAP_MAX || lo.X > hi.X || lo.Y > hi.Y || lo.Z > hi.Z)
+        if (tickK > DELTA_LIM || d > CURVE_GAP_MAX || lo.X > hi.X || lo.Y > hi.Y || lo.Z > hi.Z)
         {
             if (s - 1 > expKf)
             {
                 ExpKey(s - 1, expKv + (expLo + expHi) / 2 * (s - 1 - expKf));
                 ExpRead(s);
             }
-            if (MaxAbs(ExpInSteps(expV - expKv)) > DELTA_LIM)
+            if (tickK > DELTA_LIM) // from the ExpRead(s) after the last key
             {
                 ExpKey(s, expV);
                 expLo = Vector(-OPEN, -OPEN, -OPEN);
@@ -248,12 +267,15 @@ void ExportTracks() playervar "export - export"
         heroes = k == 0 ? <"<0>", trackHero[ids[k]]> : <"<0>, <1>", heroes, trackHero[ids[k]]>;
     }
     expDone = 0;
+    expWaitAt = 0;
     expTotal = frames * 3;
 
     // rule title, every rule of the export keeps the stamp so its parts can be told apart from other export parts
     expStamp = Near(Time() * 10);
+    tickK = timelineFrames;
+    FrameText();
     String title! = <"[IMPORT <0>] <1> track<2>, <3> long, <4> frames, <5>", expStamp, ids.Length, ids.Length == 1 ? "" : "s",
-        FormattedFrameToSec(timelineFrames), frames, CurrentMap()>;
+        frameText, frames, CurrentMap()>;
     if (StringLength(title) + StringLength(heroes) + 3 <= 128)
         title = <"<0> | <1>", title, heroes>;
 
@@ -275,7 +297,7 @@ void ExportTracks() playervar "export - export"
     Number[] dir! = [];
     for (Number k! = 0; k < ids.Length; k++)
     {
-        Number t! = ids[k];
+        Number t = ids[k];
         ioStatus = <"Track <0> <1>: flags", t + 1, trackHero[t]>;
 
         ExpPut([t, AllHeroes().IndexOf(trackHero[t]), trackTeam[t]], 1);
@@ -296,7 +318,12 @@ void ExportTracks() playervar "export - export"
         dir += expChars;
         ioStatus = <"Track <0> <1>: buttons, movement and health", t + 1, trackHero[t]>;
 
-        // buttons, throttle and health, a key whenever one changes
+        // buttons, throttle and health, a key whenever one changes. against the last key:
+        //   same buttons and health, throttle at -1, 0 or 1 on both axes, gap up to 113: 1 char, (gap - 1) * 9 + x * 3 + z
+        //     with the throttle levels 0 to 2 (tickI, tickJ)
+        //   same throttle and health, gap up to 128: 2 chars, STEP_BUTTONS + (gap - 1) * 8 + buttons / 4096, buttons % 4096
+        //   else a full key: STEP_FULL + gap (1), buttons (2, +HEALTH_FLAG when health follows), [health * 1024 (2)], throttle x z (1)
+        // a track's first key has its health, so it's full: a first steps char of STEP_FULL or more marks a Packed2 export
         Vector last! = Vector(-1, -1, -1);
         Number lastHp! = -1;
         expKf = 0;
@@ -306,16 +333,23 @@ void ExportTracks() playervar "export - export"
             tickJ = s % CHUNK_SIZE;
             Vector ctrl! = recTake[tickI][tickJ].Ctrl;
             Number hp! = recTake[tickI][tickJ].Look.Z;
-            Vector v! = Vector(Near((ctrl.X + 1) * 2047.5), ctrl.Y, Near((ctrl.Z + 1) * 2047.5));
+            Vector v = Vector(Near((ctrl.X + 1) * THROTTLE_HALF), ctrl.Y, Near((ctrl.Z + 1) * THROTTLE_HALF));
+            Number gap! = s - expKf;
 
-            if (v != last || hp != lastHp || s == expN - 1 || s - expKf >= KEY_GAP_MAX)
+            if (v != last || hp != lastHp || s == expN - 1 || gap >= KEY_GAP_MAX)
             {
-                ExpPut([s - expKf], 1);
-                if (hp != lastHp)
-                    ExpPut([v.Y + HEALTH_FLAG, Min(Near(hp * 1024), encMax)], 2);
+                tickI = ThrottleLevel(v.X);
+                tickJ = ThrottleLevel(v.Z);
+                if (hp == lastHp && v.Y == last.Y && gap <= THROTTLE_KEY_GAP_MAX && ThrottleDigital(v))
+                    ExpPut(ThrottleKey(gap, tickI, tickJ), 1);
+                else if (hp == lastHp && Vector(v.X, last.Y, v.Z) == last && gap <= BUTTONS_KEY_GAP_MAX)
+                    ExpPut(ButtonsKey(gap, v.Y), 1);
                 else
-                    ExpPut([v.Y], 2);
-                ExpPut([v.X, v.Z], 1);
+                {
+                    ExpPut([gap + STEP_FULL], 1);
+                    ExpPut(hp != lastHp ? [v.Y + HEALTH_FLAG, Min(Near(hp * 1024), encMax)] : [v.Y], 2);
+                    ExpPut([v.X, v.Z], 1);
+                }
                 expKf = s;
                 last = v;
                 lastHp = hp;

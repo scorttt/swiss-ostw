@@ -40,16 +40,20 @@ if (!trackLabelsFresh || (trackMenuOpen && (ActionHit(hovered) != trackLabelsHov
         tickJ = 0; // the recording budget used
         for (tickI = 0; tickI < MAX_TRACKS; tickI++)
         {
+            tickK = trackFrames[tickI];
+            FrameText();
             trackLabels[tickI] = <"<0>Track <1>   <2>",
                 focusedTrack == tickI ? IconString(Icon.ArrowRight) + " " : "",
                 tickI + 1,
                 trackFrames[tickI] > 0
-                    ? <"<0> <1> long, <2> frames", HeroIconString(trackHero[tickI]), FormattedFrameToSec(trackFrames[tickI]), trackFrames[tickI]>
+                    ? <"<0> <1> long, <2> frames", HeroIconString(trackHero[tickI]), frameText, trackFrames[tickI]>
                     : "Empty">;
             tickJ += trackFrames[tickI];
         }
 
-        trackLabels[MAX_TRACKS] = <"Budget: <0> / <1> (all tracks)", FormattedFrameToSec(tickJ), FormattedFrameToSec(MAX_TOTAL_SAMPLES)>;
+        tickK = tickJ;
+        FrameText();
+        trackLabels[MAX_TRACKS] = <"Budget: <0> / 10:00.00 (all tracks)", frameText>; // MAX_TOTAL_SAMPLES
     }
 
     trackLabelsHover = ActionHit(hovered);

@@ -1,7 +1,8 @@
 import "../main.del";
 
 globalvar Boolean importDone!;
-globalvar Boolean impOld!;      // the export is from Overdub 1.0.3 or older, its curve keys have no short form
+globalvar ExportFormat impFmt!; // the format of the track being read
+globalvar Vector impPd!;        // the last facing key's yaw and pitch deltas in steps, Packed2's facing keys add to them
 
 // decoded samples go through recBuf and recChunk like recording does, nothing is allowed to record during an import
 globalvar Number[] impV;
@@ -26,7 +27,7 @@ Number IMPORT_MAX_LOAD: 200;    // server load % the import and its bot spawns w
 
 // reads count values of 1 or 2 chars at channel c's cursor into impV. every importData entry holds IMPORT_ARRAY trees
 // of TREE_CHARS chars but the last
-void ImpAt(Number | Chan c!, Number count!, Number width!) globalvar "import - at"
+void ImpAt(Number | Chan c, Number count!, Number width) globalvar "import - at"  // c and width plain, every read writes them
 {
     impV = [];
     for (Number k! = 0; k < count * width; k++)
@@ -43,48 +44,73 @@ void ImpAt(Number | Chan c!, Number count!, Number width!) globalvar "import - a
     }
 }
 
+Number PosShortGap(Number g): Floor(g / 256) + 1;
+Vector PosShortDeltas(Number g, Number zx, Number y): Vector((zx % 1024 - POS_SHORT_HALF) * POS_STEP, (y - DELTA_ZERO) * POS_STEP_Y, (g % 256 * 4 + Floor(zx / 1024) - POS_SHORT_HALF) * POS_STEP);
+Vector LookKey1Deltas(Number g): Vector(Floor(g / 16) - 32, g % 16 - 8, 0);
+Vector LookKey2Deltas(Number g, Number yaw): Vector(yaw - DELTA_ZERO, (g - TINY_LOOK) % 512 - 256, 0);
+Number LookKey2Gap(Number g): Floor((g - TINY_LOOK) / 512) + 1;
+Vector ThrottleKeyValue(Number g, Number buttons): Vector(Floor(g % 9 / 3) - 1, buttons, g % 3 - 1);
+Number ButtonsKeyValue(Number g, Number low): (g - STEP_BUTTONS) % 8 * 4096 + low;
+
 // next key of channel c into impFB / impVB, from the key in impFA / impVA. the same math as the export's ExpKey
 void ImpKey(Number c!) globalvar "import - key"
 {
     ImpAt(c, 1, 1);
-    Number g! = impV[0]; // the next ImpAt replaces impV
+    Number g = impV[0]; // the next ImpAt replaces impV. plain, the most read import value
 
-    // short keys, layouts are in export.del
-    if (!impOld && c == Chan.Pos && g < SHORT_KEYS)
+    // short keys, layouts are in export.del (ExpKey, ExportTracks)
+    if (impFmt != ExportFormat.Old && c == Chan.Pos && g < SHORT_KEYS)
     {
         ImpAt(Chan.Pos, 2, 1);
-        impFB[Chan.Pos] = impFA[Chan.Pos] + Floor(g / 256) + 1;
-        impVB[Chan.Pos] = impVA[Chan.Pos] + Vector((impV[0] % 1024 - 512) * POS_STEP, (impV[1] - 2048) * POS_STEP_Y, (g % 256 * 4 + Floor(impV[0] / 1024) - 512) * POS_STEP);
+        impFB[Chan.Pos] = impFA[Chan.Pos] + PosShortGap(g);
+        impVB[Chan.Pos] = impVA[Chan.Pos] + PosShortDeltas(g, impV[0], impV[1]);
     }
-    else if (!impOld && c == Chan.Look && g < SHORT_KEYS)
+    else if (impFmt == ExportFormat.Packed && c == Chan.Look && g < SHORT_KEYS)
     {
         ImpAt(Chan.Look, 1, 1);
         impFB[Chan.Look] = impFA[Chan.Look] + Floor(g / 1024) + 1;
-        impVB[Chan.Look] = impVA[Chan.Look] + Vector(impV[0] - 2048, g % 1024 - 512, 0) * ANG_STEP;
+        impVB[Chan.Look] = impVA[Chan.Look] + Vector(impV[0] - DELTA_ZERO, g % 1024 - 512, 0) * ANG_STEP;
+    }
+    // the deltas are the last key's plus these, 1 char below TINY_LOOK, else 2
+    else if (impFmt == ExportFormat.Packed2 && c == Chan.Look && g < SHORT_KEYS)
+    {
+        ImpAt(Chan.Look, g < TINY_LOOK ? 0 : 1, 1);
+        impPd += g < TINY_LOOK ? LookKey1Deltas(g) : LookKey2Deltas(g, impV[0]);
+        impFB[Chan.Look] = impFA[Chan.Look] + (g < TINY_LOOK ? 1 : LookKey2Gap(g));
+        impVB[Chan.Look] = impVA[Chan.Look] + impPd * ANG_STEP;
     }
     // delta and absolute keys. older export's (1.0.3 and older) key is only these: its gap, +2048 when absolute
     else if (c != Chan.Steps)
     {
-        Boolean abs! = g >= (impOld ? 2048 : ABS_KEYS);
-        impFB[c] = impFA[c] + (impOld ? g % 2048 : (g - SHORT_KEYS) % 1024);
+        Boolean abs! = g >= (impFmt == ExportFormat.Old ? 2048 : ABS_KEYS);
+        impFB[c] = impFA[c] + (impFmt == ExportFormat.Old ? g % 2048 : (g - SHORT_KEYS) % 1024);
         ImpAt(c, 3 - c, abs ? 2 : 1);
 
         if (c == Chan.Pos)
         {
             impVB[Chan.Pos] = abs
                 ? DecodePos(Vector(impV[0], impV[1], impV[2]))
-                : impVA[Chan.Pos] + Vector((impV[0] - 2048) * POS_STEP, (impV[1] - 2048) * POS_STEP_Y, (impV[2] - 2048) * POS_STEP);
+                : impVA[Chan.Pos] + Vector((impV[0] - DELTA_ZERO) * POS_STEP, (impV[1] - DELTA_ZERO) * POS_STEP_Y, (impV[2] - DELTA_ZERO) * POS_STEP);
         }
         else
         {
-            impVB[Chan.Look] = abs
-                ? DecodeLook(impVA[Chan.Look].X, impV[0], impV[1])
-                : impVA[Chan.Look] + Vector(impV[0] - 2048, impV[1] - 2048, 0) * ANG_STEP;
+            impPd = abs ? Vector(0, 0, 0) : Vector(impV[0] - DELTA_ZERO, impV[1] - DELTA_ZERO, 0);
+            impVB[Chan.Look] = abs ? DecodeLook(impVA[Chan.Look].X, impV[0], impV[1]) : impVA[Chan.Look] + impPd * ANG_STEP;
         }
     }
+    // Packed2 steps keys of only the throttle (to -1, 0 or 1, 1 char) or only the buttons (2 chars). impVB still holds the last key
+    else if (impFmt == ExportFormat.Packed2 && g < STEP_FULL)
+    {
+        ImpAt(Chan.Steps, g < STEP_BUTTONS ? 0 : 1, 1);
+        impFB[Chan.Steps] = impFA[Chan.Steps] + Floor(g % STEP_BUTTONS / (g < STEP_BUTTONS ? 9 : 8)) + 1;
+        impVB[Chan.Steps] = g < STEP_BUTTONS
+            ? ThrottleKeyValue(g, impVB[Chan.Steps].Y)
+            : Vector(impVB[Chan.Steps].X, ButtonsKeyValue(g, impV[0]), impVB[Chan.Steps].Z);
+    }
+    // a full steps key, its gap is + STEP_FULL in Packed2 and below it before
     else
     {
-        impFB[c] = impFA[c] + g;
+        impFB[c] = impFA[c] + g % STEP_FULL;
         ImpAt(Chan.Steps, 1, 2);
         Number b! = impV[0];
         if (b >= HEALTH_FLAG)
@@ -94,7 +120,7 @@ void ImpKey(Number c!) globalvar "import - key"
             b -= HEALTH_FLAG;
         }
         ImpAt(Chan.Steps, 2, 1);
-        impVB[Chan.Steps] = Vector(impV[0] / 2047.5 - 1, b, impV[1] / 2047.5 - 1);
+        impVB[Chan.Steps] = Vector(impV[0] / THROTTLE_HALF - 1, b, impV[1] / THROTTLE_HALF - 1);
     }
 }
 
@@ -208,12 +234,20 @@ if (IsAlive())
         StoreTrackFlags(t, impV);
 
         // the 3 channels start with a key on frame 0, the frame loop moves each on when it reaches its next key. the
-        // first position key is absolute: 2048 in an old export (1.0.3 and older), ABS_KEYS in a new one
+        // first position key is absolute: 2048 in an old export (1.0.3 and older), ABS_KEYS in a newer one. the first
+        // steps key is full, its gap 0 is STEP_FULL in a Packed2 export and 0 before
         ImpAt(Chan.Header, 1, 1);
-        impOld = impV[0] == 2048;
         impCur[Chan.Pos] = impCur[Chan.Header] - 1;
         impCur[Chan.Look] = dir[k * 2];
         impCur[Chan.Steps] = dir[k * 2 + 1];
+        if (impV[0] == 2048)
+            impFmt = ExportFormat.Old;
+        else
+        {
+            ImpAt(Chan.Steps, 1, 1);
+            impCur[Chan.Steps]--;
+            impFmt = impV[0] >= STEP_FULL ? ExportFormat.Packed2 : ExportFormat.Packed;
+        }
         impFA = [0, 0, 0];
         impVA = [Vector(0, 0, 0), Vector(0, 0, 0), Vector(0, 0, 0)];
         for (Number c! = 0; c < 3; c++)

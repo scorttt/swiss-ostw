@@ -43,12 +43,12 @@ Any CtrlPos(Number | Ctrl id, Number xOffset = 0, Number yOffset = 0): RenderPos
 Boolean IsHovered(Number | Ctrl id): local.hovered == id;
 
 // the play button is Pause, but not while firstPerson is paused by the timeline (Play resumes it then)
-Boolean ShowsPause(Player p = player): p.playbackActive && p.firstPersonPaused == Paused.None;
+Boolean ShowsPause(Player p = player): p.playbackActive && p.firstPersonPaused == PlayMode.None;
 
 // which buttons can be clicked, by Ctrl. cursor hover sets ctrlEnabled from it every tick, while recording only Record and AddFlag stay
 Boolean[] CtrlEnabledNow():
     [
-        (!playbackActive && CanPlay()) || firstPersonPaused != Paused.None,                         // Play
+        (!playbackActive && CanPlay()) || firstPersonPaused != PlayMode.None,                       // Play
         ShowsPause(),                                                                               // Pause
         playbackActive,                                                                             // Stop
         currFrame != trimStart,                                                                     // Rewind
@@ -77,54 +77,37 @@ Color ButtonColor(Number | Ctrl id, Boolean active = false):
             ? Color.White
             : CustomColor(140, 140, 140, 255);
 
-// creates a clickable button, and creates its text when it has a fixed label
-void UIButton(Number | Ctrl id!, Number x!, Number y!, Number hitSize!, String label! = "", Number scale! = 2) globalvar "ui button"
-{
-    CTRL_X[id] = x;
-    CTRL_Y[id] = y;
-    CTRL_HALF_W[id] = hitSize / 2;
-
-    if (label != "")
-        CreateInWorldText(
-            VisibleTo:      TimelineVisible() ? local : null,
-            Header:         Once(id) == Ctrl.Record && !local.recording && local.canRetake && (!local.recordArmed || local.punchFrame != WHOLE_TAKE)
-                                ? "◐"
-                                : Once(label),
-            Position:       CtrlPos(Once(id)),
-            Scale:          scale,
-            TextColor:      local.confirmId == Once(id) || (Once(id) == Ctrl.Record && (local.recording || local.recordArmed))
-                                ? RedPulse()
-                                : Once(id) == Ctrl.Loop && !IsHovered(Ctrl.Loop) && local.ctrlEnabled[Ctrl.Loop] && local.loopPlayback
-                                    ? Color.Green
-                                    : ButtonColor(Once(id),
-                                        (Once(id) == Ctrl.Rewind && (local.rewinding || local.firstPersonPaused == Paused.Rewind))
-                                     || (Once(id) == Ctrl.Forward && (local.fastForwarding || local.firstPersonPaused == Paused.Forward))),
-            Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
-            Clipping:       Clipping.DoNotClip,
-            Spectators:     Spectators.VisibleNever);
-}
-
+// button positions and hitboxes by Ctrl, and the texts of buttons with a fixed label. arrays rather than a call per button, which was about ~250 more elements and 6 writes each
 rule: "init buttons"
 {
-    UIButton(Ctrl.Play,        -2.380, -1.150, 0.125);
-    UIButton(Ctrl.Pause,       -2.385, -1.150, 0.125);
-    UIButton(Ctrl.Stop,        -2.250, -1.150, 0.125, "■", 1.75);
-    UIButton(Ctrl.Rewind,      -2.125, -1.150, 0.125, "«");
-    UIButton(Ctrl.Forward,     -2.000, -1.150, 0.100, "»");
-    UIButton(Ctrl.PrevFrame,   -1.900, -1.150, 0.115, "‹");
-    UIButton(Ctrl.NextFrame,   -1.800, -1.150, 0.085, "›");
-    UIButton(Ctrl.Options,      2.350, -1.275, 0.500, "Options", 1.5);
-    UIButton(Ctrl.Record,      -2.520, -1.150, 0.150, "●");
-    UIButton(Ctrl.Track,        2.350, -1.150, 0.350);
-    UIButton(Ctrl.AddFlag,     -1.700, -1.160, 0.085);
-    UIButton(Ctrl.DeleteTrack, -1.590, -1.160, 0.085, "×");
-    UIButton(Ctrl.ChangeHero,   1.750, -1.275, 0.600, "Change Hero", 1.5);
-    UIButton(Ctrl.Team,         1.120, -1.275, 0.550);
-    UIButton(Ctrl.Loop,        -1.475, -1.160, 0.100, "∞");
-    UIButton(Ctrl.GoTo,         1.750, -1.150, 0.600, "Go To Track", 1.5);
-    UIButton(Ctrl.Objective,    1.120, -1.150, 0.600, "Go to Objective", 1.5);
-    UIButton(Ctrl.PrevTrack,    2.120, -1.150, 0.100, "‹");
-    UIButton(Ctrl.NextTrack,    2.580, -1.150, 0.100, "›");
+    //                  Play    Pause   Stop    Rewind  Forward  PrevFrame  NextFrame  Options    Record  Track   AddFlag  DeleteTrack  ChangeHero     Team    Loop    GoTo           Objective          PrevTrack  NextTrack
+    CTRL_X =           [-2.380, -2.385, -2.250, -2.125, -2.000,  -1.900,    -1.800,    2.350,     -2.520, 2.350,  -1.700,  -1.590,      1.750,         1.120,  -1.475, 1.750,         1.120,             2.120,     2.580];
+    CTRL_Y =           [-1.150, -1.150, -1.150, -1.150, -1.150,  -1.150,    -1.150,    -1.275,    -1.150, -1.150, -1.160,  -1.160,      -1.275,        -1.275, -1.160, -1.150,        -1.150,            -1.150,    -1.150];
+    CTRL_HALF_W =      [0.0625, 0.0625, 0.0625, 0.0625, 0.05,    0.0575,    0.0425,    0.25,      0.075,  0.175,  0.0425,  0.0425,      0.3,           0.275,  0.05,   0.3,           0.3,               0.05,      0.05];
+    String[] labels! = ["",     "",     "■",    "«",    "»",     "‹",       "›",       "Options", "●",    "",     "",      "×",         "Change Hero", "",     "∞",    "Go To Track", "Go to Objective", "‹",       "›"];
+    Number[] scales! = [2,      2,      1.75,   2,      2,       2,         2,         1.5,       2,      2,      2,       2,           1.5,           2,      2,      1.5,           1.5,               2,         2];
+
+    for (Number k! = 0; k < labels.Length; k++)
+        if (labels[k] != "")
+            CreateInWorldText(
+                VisibleTo:      TimelineVisible() ? local : null,
+                Header:         Once(k) == Ctrl.Record && !local.recording && local.canRetake && (!local.recordArmed || local.punchFrame != WHOLE_TAKE)
+                                    ? "◐"
+                                    : Once(labels[k]),
+                Position:       CtrlPos(Once(k)),
+                Scale:          scales[k],
+                TextColor:      local.confirmId == Once(k) || (Once(k) == Ctrl.Record && (local.recording || local.recordArmed))
+                                    ? RedPulse()
+                                    : Once(k) == Ctrl.Loop && !IsHovered(Ctrl.Loop) && local.ctrlEnabled[Ctrl.Loop] && local.loopPlayback
+                                        ? Color.Green
+                                        : ButtonColor(Once(k),
+                                            Once(k) >= Ctrl.Rewind && (local.playMode == Once(k) || local.firstPersonPaused == Once(k))),
+                Reevaluation:   InworldTextRev.VisibleToPositionStringAndColor,
+                Clipping:       Clipping.DoNotClip,
+                Spectators:     Spectators.VisibleNever);
+
+    labels = [];
+    scales = [];
 }
 
 rule: "create button texts"
@@ -225,9 +208,7 @@ void StartPlayback() playervar "tl - start playback"
 
     firstPersonLeft = false; // firstPerson takes over
     playbackActive = true;
-    playStarting = true;
-    fastForwarding = false;
-    rewinding = false;
+    playMode = PlayMode.Starting;
 
     orbiting = true;
 
@@ -236,7 +217,7 @@ void StartPlayback() playervar "tl - start playback"
         CloseTimeline();
 }
 
-void ActivateCtrl(Number | Ctrl ctrl!) playervar "tl - selection handler"
+void ActivateCtrl(Number | Ctrl ctrl) playervar "tl - selection handler"
 {
     if (recording && ctrl != Ctrl.Record && ctrl != Ctrl.AddFlag)
         return;
@@ -244,7 +225,7 @@ void ActivateCtrl(Number | Ctrl ctrl!) playervar "tl - selection handler"
     switch (ctrl)
     {
         case Ctrl.Play:
-            if (firstPersonPaused != Paused.None)
+            if (firstPersonPaused != PlayMode.None)
                 CloseTimeline();
             else if (CanPlay())
                 StartPlayback();
@@ -257,39 +238,22 @@ void ActivateCtrl(Number | Ctrl ctrl!) playervar "tl - selection handler"
             currFrame = trimStart;
             FirstPersonDetach();
             break;
-        // also counts a fast forward / rewind paused by the timeline while FirstPerson
+        // ctrl is also PlayMode. a fast forward / rewind paused by the timeline while FirstPerson counts too
         case Ctrl.Rewind:
-            if (fastForwarding || firstPersonPaused == Paused.Forward)
-            {
-                StopAll();
-                break;
-            }
-
-            framesToSkip = rewinding || firstPersonPaused == Paused.Rewind ? Min(framesToSkip * 2, 32) : 2;
-
-            if (currFrame != trimStart)
-            {
-                playbackActive = true;
-                rewinding = true;
-                playing = false;
-                playStarting = false;
-            }
-            break;
         case Ctrl.Forward:
-            if (rewinding || firstPersonPaused == Paused.Rewind)
+            tickJ = playMode == PlayMode.None ? firstPersonPaused : playMode;
+            if (tickJ == Ctrl.Rewind + Ctrl.Forward - ctrl) // running the otehr way
             {
                 StopAll();
                 break;
             }
 
-            framesToSkip = fastForwarding || firstPersonPaused == Paused.Forward ? Min(framesToSkip * 2, 32) : 2;
+            framesToSkip = tickJ == ctrl ? Min(framesToSkip * 2, 32) : 2;
 
-            if (currFrame != trimEnd)
+            if (currFrame != (ctrl == Ctrl.Forward ? trimEnd : trimStart))
             {
                 playbackActive = true;
-                fastForwarding = true;
-                playing = false;
-                playStarting = false;
+                playMode = ctrl;
             }
             break;
         case Ctrl.PrevFrame:

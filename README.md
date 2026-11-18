@@ -76,8 +76,8 @@ The inspector can't be cleared by the script and keeps every export since the lo
 
 The number in `[IMPORT 1234]` only identifies the export (the time in game it was exported), it is not a date. If several imports exist in the rule list, the import with the higher number will win the load
 
-### Converting exports from versions 1.0.3 and older
-Newer versions of Overdub use a smaller export format, but still import older exports like normal. An old export is about 25% larger, so a large import leaves less room under the Workshop's element limit. To convert old exports to the new format, use the export converter with code J3KFX. This is a separate gamemode that does nothing else, and shouldn't be necessary to do unless you are reaching the element cap.
+### Converting exports from older versions
+Newer versions of Overdub use a smaller export format, but still import older exports like normal. An export from 1.0.3 or older is about ~40% larger, so a large import leaves less room under the Workshop's element limit. To convert old exports to the new format, use the export converter with code J3KFX. This is a separate gamemode that does nothing else, and shouldn't be necessary to do unless you are reaching the element cap.
 1. Create a lobby on any map with the export converter, paste the old format export rules into it like you would in Overdub, and start the game
 2. Wait for "Converted!" at the top of the screen, then copy the Inspector log like you normally would (with the first timestamp removed)
 3. Import that into Overdub. The recording plays back the same as the old export within half a millimeter.

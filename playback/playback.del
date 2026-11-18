@@ -14,11 +14,11 @@ playervar Number playClock; // Time() frame 0 is at while playing, regular var s
 // anything else that moves the playhead (even during playback) also sets playClock
 rule: "play"
 Event.OngoingPlayer
-if (playing)
+if (playMode == PlayMode.Play)
 if (currFrame < trimEnd)
 {
     playClock = Time() - (currFrame + 1) * delta; // the first frame moves at once
-    while (playing && currFrame < trimEnd)
+    while (playMode == PlayMode.Play && currFrame < trimEnd)
     {
         currFrame = Min(Near((Time() - playClock) / delta), trimEnd);
         MinWait();
@@ -29,17 +29,17 @@ if (currFrame < trimEnd)
 // playback that reached the end of its range, doesnt matter how the playhead got there
 rule: "playback range end"
 Event.OngoingPlayer
-if (playing || fastForwarding || rewinding)
-if (rewinding ? currFrame <= trimStart : currFrame >= trimEnd)
+if (playMode >= PlayMode.Play)
+if (playMode == PlayMode.Rewind ? currFrame <= trimStart : currFrame >= trimEnd)
 {
-    if (playing && CanLoop())
+    if (playMode == PlayMode.Play && CanLoop())
     {
         currFrame = trimStart;
         playClock = Time() - trimStart * delta; // "play" is still in its loop and moves on from here
     }
     else
     {
-        if (!rewinding)
+        if (playMode != PlayMode.Rewind)
         {
             orbiting = false;
             FirstPersonDetach();
@@ -86,7 +86,7 @@ void CheckTracksBusy(Number f!) playervar "playback - check busy tracks"
 
 rule: "play start snap"
 Event.OngoingPlayer
-if (playStarting)
+if (playMode == PlayMode.Starting)
 {
     if (!snapRestart)
         trackHold = TRACK_IDS.Map(t => currFrame);
@@ -126,7 +126,7 @@ if (playStarting)
     }
 
     // only snap to a frame without any ability use, otherwise play from the chosen frame
-    if (playStarting && currFrame == chosen && f != chosen && snapState == Snap.None)
+    if (playMode == PlayMode.Starting && currFrame == chosen && f != chosen && snapState == Snap.None)
     {
         CheckTracksBusy(Max(trimStart, f - SNAP_MARGIN));
 
@@ -136,24 +136,22 @@ if (playStarting)
         currFrame = f;
     }
 
-    if (playStarting)
+    if (playMode == PlayMode.Starting)
     {
-        playStarting = false;
-        
         if (!snapRestart)
             trackHold = TRACK_IDS.Map(t => currFrame);
 
-        playing = true;
+        playMode = PlayMode.Play;
     }
     snapRestart = false;
 }
 
 rule: "fast forward / rewind loop"
 Event.OngoingPlayer
-if (rewinding || fastForwarding)
-if (rewinding ? currFrame > trimStart : currFrame < trimEnd)
+if (playMode >= PlayMode.Rewind)
+if (playMode == PlayMode.Rewind ? currFrame > trimStart : currFrame < trimEnd)
 {
-    currFrame = Clamp(currFrame + (fastForwarding ? framesToSkip : -framesToSkip), trimStart, trimEnd);
+    currFrame = Clamp(currFrame + (playMode == PlayMode.Forward ? framesToSkip : -framesToSkip), trimStart, trimEnd);
     MinWait();
     LoopIfConditionIsTrue();
 }

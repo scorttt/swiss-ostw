@@ -14,7 +14,7 @@ BANNED = '"{}\\<>'
 # chars added to Unicode after the table was made. the table can't change, every export depends on it, but unicodedata
 # follows the Python version. a newer Python can add more, char_table() then fails instead of shifting the table
 NEWER_CHARS = "\u1b4e\u1b4f\u1b7f\u20c1\u2427\u2428\u2429\u2b96\u2ffc\u2ffd\u2ffe\u2fff\u31e4\u31e5\u31ef"
-TABLE_SHA256 = "dade0e4a6c675df5c29f3be40fbf806d52401439257ebbeddfd827c2af74a48c"     # of the table in converter/format.del
+TABLE_SHA256 = "dade0e4a6c675df5c29f3be40fbf806d52401439257ebbeddfd827c2af74a48c"     # of the table in export/format.del
 
 
 def char_table():
