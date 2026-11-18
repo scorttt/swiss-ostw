@@ -1,6 +1,6 @@
 import "../macros-ostw/main.del";
-// import "settings.json";
-import "dbgsettings.json";
+import "settings.json";
+// import "dbgsettings.json";
 
 import "core/game.del";
 import "core/tracks.del";
